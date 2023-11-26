@@ -1,6 +1,7 @@
 use ark_ec::PairingEngine;
 use optrand_pvss::{ComGroup, nizk::scheme::NIZKProof};
 use optrand_pvss::nizk::dleq::DLEQProof;
+use optrand_pvss::GT;
 //use serde::{Deserialize, Serialize};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
