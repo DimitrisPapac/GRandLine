@@ -1,10 +1,9 @@
-use ark_bls12_381::{Bls12_381, Fr, G1Affine, G2Affine, G2Projective};
 use ark_ec::{AffineCurve, ProjectiveCurve, PairingEngine};
-use ark_ff::{PrimeField, UniformRand, Zero, One};
+use ark_ff::{UniformRand, One};
 use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
 use ark_std::collections::BTreeMap;
 
-use rand::{thread_rng, Rng};
+use rand::thread_rng;
 use std::marker::PhantomData;
 use std::io::Write;
 use std::fs::{self, File};
@@ -13,11 +12,8 @@ use std::ops::Neg;
 use std::path::Path;
 use tokio::time::{sleep, Duration};
 
-use optrand_pvss::{ComGroup, EncGroup};
-use optrand_pvss::nizk::dleq::DLEQProof;
-use optrand_pvss::nizk::scheme::NIZKProof;
+use optrand_pvss::{ComGroup, EncGroup, Scalar};
 use optrand_pvss::modified_scrape::errors::PVSSError;
-use optrand_pvss::nizk::utils::hash::hash_to_group;
 use optrand_pvss::modified_scrape::pvss::PVSSCore;
 use optrand_pvss::modified_scrape::decryption::DecryptedShare;
 use optrand_pvss::modified_scrape::node::Node;
@@ -29,7 +25,7 @@ use optrand_pvss::modified_scrape::config::Config;
 use optrand_pvss::signature::scheme::SignatureScheme;
 use optrand_pvss::modified_scrape::srs::SRS;
 use optrand_pvss::signature::schnorr::srs::SRS as SCHSRS;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use ark_serialize::SerializationError;
 use ark_serialize::Read;
 
@@ -46,7 +42,7 @@ const IP_START: usize = 9_000;
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug)]
 pub struct Commitment<E: PairingEngine> {
     pub id: usize,
-    pub a_i: <E as PairingEngine>::Fr,
+    pub a_i: Scalar<E>,
     pub part1: ComGroup<E>,
     pub part2: EncGroup<E>,
 }
@@ -261,9 +257,7 @@ fn setup<E: PairingEngine>(
 #[tokio::main]
 async fn main() {
     let num_participants = 4;   // temporary value for testing purposes
-    let num_faults = (num_participants >> 1) - 1;   // !!!
-
-    
+    let num_faults = (num_participants >> 1) - 1;   // assume maximum number of faults
 
     // Create local ip addresses with different ports.
     let addresses = (0..num_participants)
@@ -279,6 +273,4 @@ async fn main() {
     }
 
     sleep(Duration::from_millis(5_000)).await;
-
-    // TODO: probably need to join here...
 }
