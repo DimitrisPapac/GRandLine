@@ -7,6 +7,6 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 // #[derive(Serialize, Deserialize, Debug)]
 #[derive(CanonicalSerialize, CanonicalDeserialize, Debug)]
 pub enum BroadcastMessage<E: PairingEngine> {
-    SigmaMessage((u128, usize, (ComGroup<E>, E::Fqk), <DLEQProof<ComGroup<E>, ComGroup<E>> as NIZKProof>::Proof)),
+    SigmaMessage((u128, usize, (ComGroup<E>, GT<E>), <DLEQProof<ComGroup<E>, ComGroup<E>> as NIZKProof>::Proof)),
     // Ready(Vec<u8>),
 }
