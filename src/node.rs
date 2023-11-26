@@ -27,12 +27,6 @@ impl Node {
         let input = setup::<Bls12_381>(num_participants, num_faults);
 
         sleep(Duration::from_millis(500)).await;
-
-        // Maybe use join to wait for all nodes to reach this point?
-
-        // let input = Bytes::from("Hello, world!");
-
-        // sleep(Duration::from_millis(50)).await;
         
         Core::spawn(id, nodes, sender, rx, num_participants, num_faults, input);
     }
