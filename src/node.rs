@@ -1,14 +1,15 @@
-use std::net::SocketAddr;
-
 use ark_bls12_381::Bls12_381;
-// use bytes::Bytes;
-use tokio::sync::mpsc::channel;
-use tokio::time::{sleep, Duration};
 
-use crate::setup;
+use std::net::SocketAddr;
+use tokio::{
+    sync::mpsc::channel,
+    time::{sleep, Duration},
+};
+
 use crate::{
     core::Core,
     network::{MessageReceiver, SimpleSender},
+    setup,
 };
 
 pub struct Node;
