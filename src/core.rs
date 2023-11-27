@@ -5,7 +5,7 @@ use sha3::{
     Shake256,
 };
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     net::SocketAddr,
     ops::{Mul, Neg},
 };
@@ -34,7 +34,6 @@ use ark_serialize::CanonicalSerialize;
 const PERSONA: &[u8] = b"OnePiece";
 const LAMBDA: usize = 256; // main security parameter
 
-// TODO: I don't know if that name makes sense.
 struct Proof<E: PairingEngine> {
     sigma: (ComGroup<E>, GT<E>),
     pi: <DLEQProof<ComGroup<E>, ComGroup<E>> as NIZKProof>::Proof,
@@ -257,8 +256,6 @@ impl<E: PairingEngine> Core<E> {
 
         let dleq = DLEQProof { srs };
 
-        // TODO: is it ok to create a new rng every time this is run?
-        // TODO: unwrap
         let pi = dleq.prove(&mut thread_rng(), &a_i).unwrap();
 
         Proof { sigma, pi }

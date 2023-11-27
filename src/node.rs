@@ -32,7 +32,7 @@ impl Node {
         // (config, pks, sks, cms, qual)
         let input = setup::<Bls12_381>(num_participants, num_faults);
 
-        sleep(Duration::from_millis(500)).await;
+        sleep(Duration::from_millis(100)).await;
 
         let mut addresses = nodes.clone();
         addresses.remove(id);

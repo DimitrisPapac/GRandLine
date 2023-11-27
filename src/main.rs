@@ -254,10 +254,7 @@ fn parse_files<E: PairingEngine>(
     }
 }
 
-fn setup<E: PairingEngine>(
-    num_participants: usize,
-    num_faults: usize,
-) -> Input<E> {
+fn setup<E: PairingEngine>(num_participants: usize, num_faults: usize) -> Input<E> {
     let config_path = format!("config_{}_{}.txt", num_participants, num_faults);
     let pks_path = format!("pks_{}_{}.txt", num_participants, num_faults);
     let sks_path = format!("sks_{}_{}.txt", num_participants, num_faults);
@@ -292,8 +289,8 @@ fn setup<E: PairingEngine>(
 
 #[tokio::main]
 async fn main() {
-    let num_participants = 4; // temporary value for testing purposes
-    let num_faults = (num_participants >> 1) - 1; // assume maximum number of faults
+    let num_participants = 6; // temporary value for testing purposes
+    let num_faults = (num_participants / 2) - 1; // assume maximum number of faults
 
     // Create local ip addresses with different ports.
     let addresses = (0..num_participants)
@@ -312,5 +309,5 @@ async fn main() {
         });
     }
 
-    sleep(Duration::from_millis(15000)).await;
+    sleep(Duration::from_millis(1000000)).await;
 }
