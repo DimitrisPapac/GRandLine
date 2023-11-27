@@ -49,7 +49,7 @@ pub struct Core<E: PairingEngine> {
     config: Config<E>,
     _pks: Vec<ComGroup<E>>,
     sk: EncGroup<E>,
-    cm: Commitment<E>,
+    cms: Vec<Commitment<E>>,
     qual: HashSet<usize>,
     current_epoch: u64,
     epoch_generator: ComGroup<E>,
@@ -84,7 +84,7 @@ impl<E: PairingEngine> Core<E> {
                 config: input.config,
                 _pks: input.pks,
                 sk: input.sks[id],
-                cm: input.commitments[id].clone(),
+                cms: input.commitments.clone(),
                 qual: input.qual,
                 sigma_map: HashMap::new(),
                 current_epoch: 0,
@@ -108,7 +108,7 @@ impl<E: PairingEngine> Core<E> {
             return;
         }
 
-        let stmnt = (message.sigma.0, self.cm.part1);
+        let stmnt = (message.sigma.0, self.cms[message.id].part1);
         let srs = DLEQSRS::<ComGroup<E>, ComGroup<E>> {
             g_public_key: self.epoch_generator,
             h_public_key: self.config.srs.g2,
@@ -122,7 +122,7 @@ impl<E: PairingEngine> Core<E> {
         }
 
         let pairs = [
-            (self.cm.part2.neg().into(), self.epoch_generator.into()),
+            (self.cms[message.id].part2.neg().into(), self.epoch_generator.into()),
             (self.config.srs.g1.neg().into(), message.sigma.0.into()),
         ];
 
@@ -238,7 +238,7 @@ impl<E: PairingEngine> Core<E> {
 
     fn compute_sigma(&self) -> Proof<E> {
         // Fetch node's random scalar used for its commitment.
-        let a_i = self.cm.a_i;
+        let a_i = self.cms[self.id].a_i;
 
         let sigma = (
             self.epoch_generator.mul(a_i).into_affine(),
