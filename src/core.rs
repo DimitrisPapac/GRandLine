@@ -51,7 +51,6 @@ pub struct Core<E: PairingEngine> {
     _pks: Vec<ComGroup<E>>,
     sk: EncGroup<E>,
     cms: Vec<Commitment<E>>,
-    _qual: HashSet<usize>,
     current_epoch: u64,
     epoch_generator: ComGroup<E>,
     sigma_map: HashMap<u64, HashMap<usize, (ComGroup<E>, GT<E>)>>, // {epoch -> {id -> sigma_id}}
@@ -86,7 +85,6 @@ impl<E: PairingEngine> Core<E> {
                 _pks: input.pks,
                 sk: input.sks[id],
                 cms: input.commitments.clone(),
-                _qual: input.qual,
                 sigma_map: HashMap::new(),
                 current_epoch: 0,
                 epoch_generator,
@@ -105,10 +103,10 @@ impl<E: PairingEngine> Core<E> {
             return;
         }
 
-        // // If the sender is not qualified return.
-        // if !self.qual.contains(&message.id) {
-        //     return;
-        // }
+        // Check if the sender is qualified
+        if message.id >= self.num_participants {
+            return;
+        }
 
         let stmnt = (message.sigma.0, self.cms[message.id].part1);
         let srs = DLEQSRS::<ComGroup<E>, ComGroup<E>> {
