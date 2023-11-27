@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use ark_ec::PairingEngine;
+use ark_serialize::CanonicalDeserialize;
 use futures::StreamExt;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -8,7 +9,7 @@ use tokio::{
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-use crate::message::BroadcastMessage;
+use crate::message::SigmaMessage;
 
 //#[cfg(test)]
 //#[path = "../tests/receiver_tests.rs"]
@@ -20,11 +21,11 @@ pub struct MessageReceiver<E: PairingEngine> {
     address: SocketAddr,
 
     /// Channel to send received messages to.
-    deliver: Sender<BroadcastMessage::<E>>,
+    deliver: Sender<SigmaMessage::<E>>,
 }
 
 impl<E: PairingEngine> MessageReceiver<E> {
-    pub fn spawn(address: SocketAddr, deliver: Sender<BroadcastMessage<E>>) {
+    pub fn spawn(address: SocketAddr, deliver: Sender<SigmaMessage<E>>) {
         tokio::spawn(async move {
             Self { address, deliver }.run().await;
         });
@@ -51,7 +52,7 @@ impl<E: PairingEngine> MessageReceiver<E> {
         }
     }
 
-    async fn spawn_worker(socket: TcpStream, deliver: Sender<BroadcastMessage<E>>) {
+    async fn spawn_worker(socket: TcpStream, deliver: Sender<SigmaMessage<E>>) {
         tokio::spawn(async move {
             let transport = Framed::new(socket, LengthDelimitedCodec::new());
             let (_, mut reader) = transport.split();
@@ -59,7 +60,7 @@ impl<E: PairingEngine> MessageReceiver<E> {
                 match frame {
                     Ok(message) => {
                         // Deserialize network message.
-                        let mes = bincode::deserialize(&message.freeze()).unwrap();
+                        let mes = SigmaMessage::deserialize(&*message).unwrap();
                         // Put message into channel, such that it can be retreived with the receiving
                         // end of the channel.
                         deliver.send(mes).await.unwrap();

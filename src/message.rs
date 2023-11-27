@@ -1,19 +1,16 @@
 use ark_ec::PairingEngine;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Read, SerializationError, Write};
 
 use optrand_pvss::{
-    ComGroup,
-    GT,
-    nizk::{
-        scheme::NIZKProof,
-        dleq::DLEQProof,
-    },
+    nizk::{dleq::DLEQProof, scheme::NIZKProof},
+    ComGroup, GT,
 };
-//use serde::{Deserialize, Serialize};
 
-// #[derive(Serialize, Deserialize, Debug)]
-#[derive(CanonicalSerialize, CanonicalDeserialize, Debug)]
-pub enum BroadcastMessage<E: PairingEngine> {
-    SigmaMessage((u128, usize, (ComGroup<E>, GT<E>), <DLEQProof<ComGroup<E>, ComGroup<E>> as NIZKProof>::Proof)),
-    // Ready(Vec<u8>),
+#[derive(CanonicalSerialize, CanonicalDeserialize, Debug, Clone)]
+pub struct SigmaMessage<E: PairingEngine> {
+    pub epoch: u64,
+    pub id: usize,
+    pub sigma: (ComGroup<E>, GT<E>),
+    pub pi: <DLEQProof<ComGroup<E>, ComGroup<E>> as NIZKProof>::Proof,
+    pub test_message: String,
 }
