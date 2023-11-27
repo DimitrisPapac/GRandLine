@@ -95,7 +95,6 @@ impl<E: PairingEngine> Core<E> {
         });
     }
 
-    // TODO: this function is way too big and has too many nested ifs.
     async fn handle_sigma(&mut self, message: SigmaMessage<E>) {
         // let (epoch, orig_id, sigma, pi) = sigma_tup;
 
@@ -129,91 +128,102 @@ impl<E: PairingEngine> Core<E> {
 
         let prod = <E as PairingEngine>::product_of_pairings(pairs.iter());
 
-        if (message.sigma.1).mul(prod).is_one() {
-            let inner = self.sigma_map.get_mut(&message.epoch);
+        // TODO: I don't know what it does, but if it's false return for readability.
+        if !(message.sigma.1).mul(prod).is_one() {
+            return;
+        }
 
-            if inner.is_some() {
-                // if epoch already exists
-                inner.unwrap().insert(message.id, message.sigma);
-            } else {
-                // no entry for this epoch
-                let mut mp = HashMap::<usize, (ComGroup<E>, GT<E>)>::new();
-                mp.insert(message.id, message.sigma);
-                self.sigma_map.insert(message.epoch, mp);
-            }
+        let inner = self.sigma_map.get_mut(&message.epoch);
 
-            // Check if we can generate the beacon value for the current epoch
-            if let Some(current_epoch_sigmas) = self.sigma_map.get(&self.current_epoch) {
-                // If sufficient reconstruction points have been gathered for the current epoch
-                if current_epoch_sigmas.len() >= self.config.degree + 1 {
-                    // Reconstruct sigma := e(g_r, SK)
-                    let mut points = Vec::new();
-                    let mut evals = Vec::new();
+        if inner.is_some() {
+            // if epoch already exists
+            inner.unwrap().insert(message.id, message.sigma);
+        } else {
+            // no entry for this epoch
+            let mut mp = HashMap::<usize, (ComGroup<E>, GT<E>)>::new();
+            mp.insert(message.id, message.sigma);
+            self.sigma_map.insert(message.epoch, mp);
+        }
 
-                    let inner = self.sigma_map.get(&self.current_epoch).unwrap();
-
-                    for (&id, (_, e)) in inner {
-                        points.push(id as u64);
-                        evals.push(*e);
-                    }
-
-                    let sigma =
-                        lagrange_interpolation_gt::<E>(&evals, &points, self.config.degree as u64)
-                            .unwrap();
-
-                    let mut hasher = Shake256::default();
-
-                    let mut sigma_bytes = Vec::new();
-                    // TODO: is this serialization correct? Why do we need to serialize here
-                    let _ = sigma.serialize(&mut sigma_bytes);
-
-                    hasher.update(&sigma_bytes[..]);
-
-                    let mut reader = hasher.finalize_xof();
-
-                    let mut beacon_value = [0_u8; LAMBDA >> 3];
-
-                    XofReader::read(&mut reader, &mut beacon_value);
-
-                    // Print beacon value
-                    println!(
-                        "Node {} beacon Value for epoch {}: {:?}\n\n",
-                        self.id, self.current_epoch, beacon_value
-                    );
-
-                    // Erase entry for previous epoch from sigma_map
-                    self.sigma_map.remove(&self.current_epoch);
-
-                    // Increment epoch counter
-                    self.current_epoch += 1;
-
-                    // Compute new epoch generator
-                    self.epoch_generator =
-                        hash_to_group::<ComGroup<E>>(PERSONA, &self.current_epoch.to_le_bytes())
-                            .unwrap()
-                            .into_affine();
-
-                    // Beacon epoch phase computations
-                    let proof = self.compute_sigma();
-
-                    // Broadcast to all participants
-                    let msg = SigmaMessage {
-                        epoch: self.current_epoch,
-                        id: self.id,
-                        sigma: proof.sigma,
-                        pi: proof.pi,
-                        test_message: format!("Hello from node {}. This is a broadcast", self.id),
-                    };
-                    self.broadcast(msg).await;
+        // Check if we have enough reconstruction points.
+        match self.sigma_map.get(&self.current_epoch) {
+            Some(sigmas) => {
+                if sigmas.len() >= self.config.degree + 1 {
+                    self.compute_beacon();
+                    self.increase_epoch().await;
                 }
-            } else {
-                // will likely never need to be executed
+            }
+            None => {
+                // TODO: maybe check return value?
                 self.sigma_map.insert(
                     self.current_epoch,
                     HashMap::<usize, (ComGroup<E>, GT<E>)>::new(),
                 );
             }
         }
+    }
+
+    fn compute_beacon(&mut self) {
+        let sigmas = self.sigma_map.get(&self.current_epoch).unwrap();
+
+        // Reconstruct sigma := e(g_r, SK)
+        let mut points = Vec::new();
+        let mut evals = Vec::new();
+
+        for (&id, (_, e)) in sigmas {
+            points.push(id as u64);
+            evals.push(*e);
+        }
+
+        let sigma =
+            lagrange_interpolation_gt::<E>(&evals, &points, self.config.degree as u64).unwrap();
+
+        let mut hasher = Shake256::default();
+
+        let mut sigma_bytes = Vec::new();
+        // TODO: is this serialization correct? Why do we need to serialize here
+        let _ = sigma.serialize(&mut sigma_bytes);
+
+        hasher.update(&sigma_bytes[..]);
+
+        let mut reader = hasher.finalize_xof();
+
+        let mut beacon_value = [0_u8; LAMBDA >> 3];
+
+        XofReader::read(&mut reader, &mut beacon_value);
+
+        // Print beacon value
+        println!(
+            "Node {} beacon Value for epoch {}: {:?}\n\n",
+            self.id, self.current_epoch, beacon_value
+        );
+    }
+
+    async fn increase_epoch(&mut self) {
+        // Increment epoch counter
+        self.current_epoch += 1;
+
+        // Erase entry for previous epoch from sigma_map
+        self.sigma_map.remove(&self.current_epoch);
+
+        // Compute new epoch generator
+        self.epoch_generator =
+            hash_to_group::<ComGroup<E>>(PERSONA, &self.current_epoch.to_le_bytes())
+                .unwrap()
+                .into_affine();
+
+        // Beacon epoch phase computations
+        let proof = self.compute_sigma();
+
+        // Broadcast to all participants
+        let msg = SigmaMessage {
+            epoch: self.current_epoch,
+            id: self.id,
+            sigma: proof.sigma,
+            pi: proof.pi,
+            test_message: format!("Hello from node {}. This is a broadcast", self.id),
+        };
+        self.broadcast(msg).await;
     }
 
     /// Broadcast a given message to every node in the network.
@@ -270,7 +280,10 @@ impl<E: PairingEngine> Core<E> {
         // retrieve data from the message receiver.
         loop {
             if let Some(message) = self.rx.recv().await {
-                println!("{} is receiving from {}. Mes: {}", self.id, message.id, message.test_message);
+                println!(
+                    "{} is receiving from {}. Mes: {}",
+                    self.id, message.id, message.test_message
+                );
                 self.handle_sigma(message).await;
             };
         }
