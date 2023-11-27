@@ -1,6 +1,6 @@
-use ark_ec::{AffineCurve, ProjectiveCurve, PairingEngine};
-use ark_ff::{UniformRand, One};
-use ark_serialize::{CanonicalSerialize, CanonicalDeserialize, Read, SerializationError};
+use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
+use ark_ff::{One, UniformRand};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Read, SerializationError};
 use ark_std::collections::BTreeMap;
 
 use rand::thread_rng;
@@ -16,36 +16,29 @@ use std::{
 use tokio::time::{sleep, Duration};
 
 use optrand_pvss::{
-    ComGroup,
-    EncGroup,
     generate_production_keypair,
     modified_scrape::{
-        config::Config,
-        dealer::Dealer,
-        decryption::DecryptedShare,
-        errors::PVSSError,
-        node::Node,
-        participant::Participant,
-        pvss::PVSSCore,
-        srs::SRS,
+        config::Config, dealer::Dealer, decryption::DecryptedShare, errors::PVSSError, node::Node,
+        participant::Participant, pvss::PVSSCore, srs::SRS,
     },
-    Scalar,
-    signature::{
-        scheme::SignatureScheme,
-        schnorr::SchnorrSignature,
-        schnorr::srs::SRS as SCHSRS,
-    },
+    signature::{scheme::SignatureScheme, schnorr::srs::SRS as SCHSRS, schnorr::SchnorrSignature},
+    ComGroup, EncGroup, Scalar,
 };
-
 
 mod core;
 mod message;
 mod network;
 mod node;
 
-
 const IP_START: usize = 9_000;
 
+pub struct Input<E: PairingEngine> {
+    pub config: Config<E>,
+    pub pks: Vec<ComGroup<E>>,
+    pub sks: Vec<EncGroup<E>>,
+    pub commitments: Vec<Commitment<E>>,
+    pub qual: HashSet<usize>,
+}
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone, Debug)]
 pub struct Commitment<E: PairingEngine> {
@@ -71,7 +64,7 @@ fn generate_setup_files<E: PairingEngine>(
     let mut ips_file = File::create(ips_path).unwrap();
     for i in 0..num_participants {
         let line = format!("127.0.0.1:{}", IP_START + i);
-        writeln!(ips_file, "{}", line);
+        writeln!(ips_file, "{}", line).unwrap();
     }
 
     // Generate new srs and config
@@ -90,8 +83,8 @@ fn generate_setup_files<E: PairingEngine>(
     let mut conf_file = fs::File::create(&config_path).unwrap();
 
     conf_file.write_all(&conf_bytes).unwrap();
-    
-    let schnorr_srs = SCHSRS::<EncGroup::<E>>::from_generator(conf.srs.g1).unwrap();
+
+    let schnorr_srs = SCHSRS::<EncGroup<E>>::from_generator(conf.srs.g1).unwrap();
     let schnorr_sig = SchnorrSignature { srs: schnorr_srs };
 
     let mut dealers = vec![];
@@ -99,8 +92,8 @@ fn generate_setup_files<E: PairingEngine>(
 
     for id in 0..num_participants {
         // Generate key pairs for party
-        let dealer_keypair_sig = schnorr_sig.generate_keypair(rng).unwrap();   // (sk, pk)
-        let eddsa_keypair = generate_production_keypair();                     // (pk, sk)
+        let dealer_keypair_sig = schnorr_sig.generate_keypair(rng).unwrap(); // (sk, pk)
+        let eddsa_keypair = generate_production_keypair(); // (pk, sk)
 
         // Create the dealer instance for party
         let dealer: Dealer<E, SchnorrSignature<EncGroup<E>>> = Dealer {
@@ -125,7 +118,7 @@ fn generate_setup_files<E: PairingEngine>(
     for (id, party) in (0..num_participants).zip(participants_vec) {
         participants.insert(id, party);
     }
-    
+
     for i in 0..num_participants {
         // Create the node instance for party
         let node = Node::new(
@@ -133,7 +126,8 @@ fn generate_setup_files<E: PairingEngine>(
             schnorr_sig.clone(),
             dealers[i].clone(),
             participants.clone(),
-        ).unwrap();
+        )
+        .unwrap();
 
         nodes.push(node);
     }
@@ -144,23 +138,35 @@ fn generate_setup_files<E: PairingEngine>(
         .collect::<Vec<_>>();
 
     let pvss_core = PVSSCore::<E> {
-        encs:  (0..num_participants).map(|i| nodes[i]
-                .aggregator
-                .participants
-                .get(&i)
-                .ok_or(PVSSError::<E>::InvalidParticipantId(i))
-                .unwrap()
-                .public_key_sig
-                .mul(s[i]).into_affine()).collect::<Vec<EncGroup<E>>>(),
-        comms: (0..num_participants).map(|i| conf.srs.g2.mul(s[i]).into_affine()).collect::<Vec<ComGroup<E>>>(),   // PKs
+        encs: (0..num_participants)
+            .map(|i| {
+                nodes[i]
+                    .aggregator
+                    .participants
+                    .get(&i)
+                    .ok_or(PVSSError::<E>::InvalidParticipantId(i))
+                    .unwrap()
+                    .public_key_sig
+                    .mul(s[i])
+                    .into_affine()
+            })
+            .collect::<Vec<EncGroup<E>>>(),
+        comms: (0..num_participants)
+            .map(|i| conf.srs.g2.mul(s[i]).into_affine())
+            .collect::<Vec<ComGroup<E>>>(), // PKs
     };
 
     // Compute "secret key shares" for all nodes
     let sks = (0..num_participants)
-            .map(|i| DecryptedShare::<E>::generate(&pvss_core.encs,
-                &nodes[i].dealer.private_key_sig, 
-                nodes[i].dealer.participant.id).dec)
-            .collect::<Vec<_>>();
+        .map(|i| {
+            DecryptedShare::<E>::generate(
+                &pvss_core.encs,
+                &nodes[i].dealer.private_key_sig,
+                nodes[i].dealer.participant.id,
+            )
+            .dec
+        })
+        .collect::<Vec<_>>();
 
     let mut sks_bytes = vec![];
     sks.serialize(&mut sks_bytes).unwrap();
@@ -184,12 +190,12 @@ fn generate_setup_files<E: PairingEngine>(
 
     for i in 0..num_participants {
         let a_i = <E as PairingEngine>::Fr::rand(rng);
-        
+
         let cm_i = Commitment::<E> {
             id: i,
             a_i,
-            part1: conf.srs.g2.mul(a_i).into_affine(),   // into_repr()
-            part2: sks[i] + conf.srs.g1.mul(a_i).neg().into_affine(),   // into_repr()
+            part1: conf.srs.g2.mul(a_i).into_affine(), // into_repr()
+            part2: sks[i] + conf.srs.g1.mul(a_i).neg().into_affine(), // into_repr()
         };
 
         cms.push(cm_i);
@@ -205,14 +211,14 @@ fn generate_setup_files<E: PairingEngine>(
 }
 
 fn parse_files<E: PairingEngine>(
-    num_participants: usize,
-    num_faults: usize,
+    _num_participants: usize,
+    _num_faults: usize,
     config_path: &str,
     pks_path: &str,
     sks_path: &str,
     cms_path: &str,
-    ips_path: &str,
-) -> (Config<E>, Vec<ComGroup<E>>, Vec<EncGroup<E>>, Vec<Commitment<E>>, HashSet<usize>) {
+    _ips_path: &str,
+) -> Input<E> {
     // Read config from file
     let config = Config::<E>::deserialize(&*fs::read(&config_path).unwrap()).unwrap();
 
@@ -239,13 +245,19 @@ fn parse_files<E: PairingEngine>(
         }
     }
 
-    (config, pks, sks, cms, qual)
+    Input {
+        config,
+        pks,
+        sks,
+        commitments: cms,
+        qual,
+    }
 }
 
 fn setup<E: PairingEngine>(
     num_participants: usize,
     num_faults: usize,
-) -> (Config<E>, Vec<ComGroup<E>>, Vec<EncGroup<E>>, Vec<Commitment<E>>, HashSet<usize>) {
+) -> Input<E> {
     let config_path = format!("config_{}_{}.txt", num_participants, num_faults);
     let pks_path = format!("pks_{}_{}.txt", num_participants, num_faults);
     let sks_path = format!("sks_{}_{}.txt", num_participants, num_faults);
@@ -254,31 +266,51 @@ fn setup<E: PairingEngine>(
 
     // If no config file exists, generate entire setup from scrath
     if !Path::new(config_path.as_str()).exists() {
-        generate_setup_files::<E>(num_participants, num_faults, &config_path, &pks_path, &sks_path, &cms_path, &ips_path);
+        generate_setup_files::<E>(
+            num_participants,
+            num_faults,
+            &config_path,
+            &pks_path,
+            &sks_path,
+            &cms_path,
+            &ips_path,
+        );
     }
-    
+
     // Parse files and return output tuple to caller:
     // (config, pks, sks, cms, qual)
-    parse_files::<E>(num_participants, num_faults, &config_path, &pks_path, &sks_path, &cms_path, &ips_path)
+    parse_files::<E>(
+        num_participants,
+        num_faults,
+        &config_path,
+        &pks_path,
+        &sks_path,
+        &cms_path,
+        &ips_path,
+    )
 }
 
 #[tokio::main]
 async fn main() {
-    let num_participants = 4;   // temporary value for testing purposes
-    let num_faults = (num_participants >> 1) - 1;   // assume maximum number of faults
+    let num_participants = 4; // temporary value for testing purposes
+    let num_faults = (num_participants >> 1) - 1; // assume maximum number of faults
 
     // Create local ip addresses with different ports.
     let addresses = (0..num_participants)
-        .map(|i| format!("127.0.0.1:{}", IP_START + i).parse::<SocketAddr>().unwrap())
+        .map(|i| {
+            format!("127.0.0.1:{}", IP_START + i)
+                .parse::<SocketAddr>()
+                .unwrap()
+        })
         .collect::<Vec<_>>();
 
     // Spawn nodes.
     for i in 0..num_participants {
         let addresses = addresses.clone();
         tokio::spawn(async move {
-            node::Node::new(i, addresses,num_participants, num_faults).await;
+            node::Node::new(i, addresses, num_participants, num_faults).await;
         });
     }
 
-    sleep(Duration::from_millis(50)).await;
+    sleep(Duration::from_millis(5000)).await;
 }

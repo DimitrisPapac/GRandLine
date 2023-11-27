@@ -1,7 +1,6 @@
-use bytes::Bytes;
-use rand::{rngs::ThreadRng, thread_rng};
+use rand::thread_rng;
 use sha3::{
-    digest::{ExtendableOutput, XofReader, Update},
+    digest::{ExtendableOutput, Update, XofReader},
     Shake256,
 };
 use std::{
@@ -9,62 +8,52 @@ use std::{
     net::SocketAddr,
     ops::{Mul, Neg},
 };
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::Receiver;
 
-use crate::{
-    Commitment,
-    message::BroadcastMessage,
-    network::SimpleSender,
-};
+use crate::{message::SigmaMessage, network::SimpleSender, Commitment, Input};
 
 use optrand_pvss::{
-    ComGroup,
-    EncGroup,
-    GT,
-    modified_scrape::{
-        config::Config,
-        poly::lagrange_interpolation_gt,
-    },
+    modified_scrape::{config::Config, poly::lagrange_interpolation_gt},
     nizk::{
-        dleq::{
-            DLEQProof,
-            srs::SRS as DLEQSRS,
-        },
+        dleq::{srs::SRS as DLEQSRS, DLEQProof},
         scheme::NIZKProof,
         utils::hash::hash_to_group,
     },
+    ComGroup, EncGroup, GT,
 };
 
-use ark_ec::{AffineCurve, ProjectiveCurve, PairingEngine};
+use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::One;
 use ark_serialize::CanonicalSerialize;
-
 
 //#[cfg(test)]
 //#[path = "tests/core_tests.rs"]
 //pub mod core_tests;
 
 const PERSONA: &[u8] = b"OnePiece";
-const LAMBDA: usize = 256;   // main security parameter
+const LAMBDA: usize = 256; // main security parameter
+
+// TODO: I don't know if that name makes sense.
+struct Proof<E: PairingEngine> {
+    sigma: (ComGroup<E>, GT<E>),
+    pi: <DLEQProof<ComGroup<E>, ComGroup<E>> as NIZKProof>::Proof,
+}
 
 pub struct Core<E: PairingEngine> {
     id: usize,
     nodes: Vec<SocketAddr>,
     sender: SimpleSender,
-    rx: Receiver<BroadcastMessage<E>>,
-    num_participants: usize,
-    num_faults: usize,
-    tx_term: Sender<u8>,
-    rx_term: Receiver<u8>,
+    rx: Receiver<SigmaMessage<E>>,
+    _num_participants: usize,
+    _num_faults: usize,
     config: Config<E>,
-    pks: Vec<ComGroup<E>>,
+    _pks: Vec<ComGroup<E>>,
     sk: EncGroup<E>,
     cm: Commitment<E>,
     qual: HashSet<usize>,
-    current_epoch: u128,
+    current_epoch: u64,
     epoch_generator: ComGroup<E>,
-    sigma_map: HashMap<u128, HashMap<usize, (ComGroup<E>, GT<E>)>>,   // {epoch -> {id -> sigma_id}}
-    rng: &'static mut ThreadRng,   // gave this a static lifetime
+    sigma_map: HashMap<u64, HashMap<usize, (ComGroup<E>, GT<E>)>>, // {epoch -> {id -> sigma_id}}
 }
 
 impl<E: PairingEngine> Core<E> {
@@ -72,20 +61,17 @@ impl<E: PairingEngine> Core<E> {
         id: usize,
         nodes: Vec<SocketAddr>,
         sender: SimpleSender,
-        rx: Receiver<BroadcastMessage<E>>,
+        rx: Receiver<SigmaMessage<E>>,
         num_participants: usize,
         num_faults: usize,
-        input: (Config<E>, Vec<ComGroup<E>>, Vec<EncGroup<E>>, Vec<Commitment<E>>, HashSet<usize>),
+        input: Input<E>,
     ) {
         println!("{} spawning Core", id);
 
         // Set initial values for epoch counter, epoch generator, and sigma_map
-        let mut current_epoch = 0_u128;
-        let mut epoch_generator = hash_to_group::<ComGroup<E>>(PERSONA, &current_epoch.to_le_bytes()).unwrap().into_affine();
-        let mut sigma_map = HashMap::new();
-
-        // Channel used for terminating the core.
-        let (tx_term, rx_term) = channel(1);
+        let epoch_generator = hash_to_group::<ComGroup<E>>(PERSONA, &0_u128.to_le_bytes())
+            .unwrap()
+            .into_affine();
 
         tokio::spawn(async move {
             Self {
@@ -93,132 +79,163 @@ impl<E: PairingEngine> Core<E> {
                 nodes,
                 sender,
                 rx,
-                num_participants,
-                num_faults,
-                tx_term,
-                rx_term,
-                config: input.0,
-                pks: input.1,
-                sk: input.2[id],
-                cm: input.3[id],
-                qual: input.4,
-                sigma_map,
-                current_epoch,
+                _num_participants: num_participants,
+                _num_faults: num_faults,
+                config: input.config,
+                _pks: input.pks,
+                sk: input.sks[id],
+                cm: input.commitments[id].clone(),
+                qual: input.qual,
+                sigma_map: HashMap::new(),
+                current_epoch: 0,
                 epoch_generator,
-                rng: &mut thread_rng(),
             }
             .run()
             .await;
         });
     }
 
-    async fn handle_sigma(
-        &mut self,
-        sigma_tup: (u128, usize, (ComGroup<E>, GT<E>), <DLEQProof<ComGroup<E>, ComGroup<E>> as NIZKProof>::Proof)
-    ) {
-        let (epoch, orig_id, sigma, pi) = sigma_tup;
+    // TODO: this function is way too big and has too many nested ifs.
+    async fn handle_sigma(&mut self, message: SigmaMessage<E>) {
+        // let (epoch, orig_id, sigma, pi) = sigma_tup;
 
-        if epoch >= self.current_epoch {   // if message is not from a previous epoch
-            if  self.qual.contains(&orig_id) {   // if message sender is qualified
-                let stmnt = (sigma.0, self.cm.part1);
+        // Return if we receive a message for a previous epoch.
+        if message.epoch < self.current_epoch {
+            return;
+        }
 
-                let srs = DLEQSRS::<ComGroup<E>, ComGroup<E>> {
-                    g_public_key: self.epoch_generator,
-                    h_public_key: self.config.srs.g2,
-                };
-                
-                let dleq = DLEQProof::from_srs(srs).unwrap();
+        // If the sender is not qualified return.
+        if !self.qual.contains(&message.id) {
+            return;
+        }
 
-                if dleq.verify(&stmnt, &pi).is_ok() {                      
-                    let pairs = [
-                        (self.cm.part2.neg().into(), self.epoch_generator.into()),
-                        (self.config.srs.g1.neg().into(), sigma.0.into()),
-                    ];
+        let stmnt = (message.sigma.0, self.cm.part1);
+        let srs = DLEQSRS::<ComGroup<E>, ComGroup<E>> {
+            g_public_key: self.epoch_generator,
+            h_public_key: self.config.srs.g2,
+        };
+        let dleq = DLEQProof::from_srs(srs).unwrap();
 
-                    let prod = <E as PairingEngine>::product_of_pairings(pairs.iter());
+        // If the proof is invalid return.
+        if dleq.verify(&stmnt, &message.pi).is_err() {
+            println!("{} got invalid proof from {}", self.id, message.id);
+            return;
+        }
 
-                    if (sigma.1).mul(prod).is_one() {
-                        let inner = self.sigma_map.get_mut(&epoch);
-                        
-                        if inner.is_some() {   // if epoch already exists 
-                            inner.unwrap().insert(orig_id, sigma);
-                        } else {   // no entry for this epoch
-                            let mut mp = HashMap::<usize, (ComGroup<E>, GT<E>)>::new();
-                            mp.insert(orig_id, sigma);
-                            self.sigma_map.insert(epoch, mp);
-                        }
-                        
-                        // Check if we can generate the beacon value for the current epoch
-                        if let Some(current_epoch_sigmas) = self.sigma_map.get(&self.current_epoch) {
-                            // If sufficient reconstruction points have been gathered for the current epoch
-                            if current_epoch_sigmas.len() >= self.config.degree + 1 {
-                                // Reconstruct sigma := e(g_r, SK)
-                                let mut points = Vec::new();
-                                let mut evals = Vec::new();
+        let pairs = [
+            (self.cm.part2.neg().into(), self.epoch_generator.into()),
+            (self.config.srs.g1.neg().into(), message.sigma.0.into()),
+        ];
 
-                                let inner = self.sigma_map.get(&self.current_epoch).unwrap();
+        let prod = <E as PairingEngine>::product_of_pairings(pairs.iter());
 
-                                for (&id, (_, e)) in inner {               
-                                    points.push(id as u64);             
-                                    evals.push(*e);
-                                }
+        if (message.sigma.1).mul(prod).is_one() {
+            let inner = self.sigma_map.get_mut(&message.epoch);
 
-                                let sigma = lagrange_interpolation_gt::<E>(&evals, &points, self.config.degree as u64).unwrap();
-                                               
-                                let mut hasher = Shake256::default();
+            if inner.is_some() {
+                // if epoch already exists
+                inner.unwrap().insert(message.id, message.sigma);
+            } else {
+                // no entry for this epoch
+                let mut mp = HashMap::<usize, (ComGroup<E>, GT<E>)>::new();
+                mp.insert(message.id, message.sigma);
+                self.sigma_map.insert(message.epoch, mp);
+            }
 
-                                let mut sigma_bytes = Vec::new();
-                                sigma.serialize(&mut sigma_bytes);
+            // Check if we can generate the beacon value for the current epoch
+            if let Some(current_epoch_sigmas) = self.sigma_map.get(&self.current_epoch) {
+                // If sufficient reconstruction points have been gathered for the current epoch
+                if current_epoch_sigmas.len() >= self.config.degree + 1 {
+                    // Reconstruct sigma := e(g_r, SK)
+                    let mut points = Vec::new();
+                    let mut evals = Vec::new();
 
-                                hasher.update(&sigma_bytes[..]);
+                    let inner = self.sigma_map.get(&self.current_epoch).unwrap();
 
-                                let mut reader = hasher.finalize_xof();
-
-                                let mut beacon_value = [0_u8; LAMBDA >> 3];
-
-                                XofReader::read(&mut reader, &mut beacon_value);
-
-                                // Print beacon value
-                                println!("Node {} beacon Value for epoch {}: {:?}\n\n", self.id, self.current_epoch, beacon_value);
-
-                                // Erase entry for previous epoch from sigma_map
-                                self.sigma_map.remove(&self.current_epoch);
-
-                                // Increment epoch counter
-                                self.current_epoch += 1;
-
-                                // Compute new epoch generator
-                                self.epoch_generator = hash_to_group::<ComGroup<E>>(PERSONA, &self.current_epoch.to_le_bytes()).unwrap().into_affine();
-
-                                // Beacon epoch phase computations
-                                let (sigma, pi) = self.compute_sigma();
-
-                                // Broadcast to all participants
-                                let msg = BroadcastMessage::SigmaMessage((self.current_epoch, self.id, sigma, pi));
-                                self.broadcast(msg).await;
-                            }
-                        } else {   // will likely never need to be executed
-                            self.sigma_map.insert(self.current_epoch, HashMap::<usize, (ComGroup<E>, GT<E>)>::new());
-                        }
+                    for (&id, (_, e)) in inner {
+                        points.push(id as u64);
+                        evals.push(*e);
                     }
+
+                    let sigma =
+                        lagrange_interpolation_gt::<E>(&evals, &points, self.config.degree as u64)
+                            .unwrap();
+
+                    let mut hasher = Shake256::default();
+
+                    let mut sigma_bytes = Vec::new();
+                    // TODO: is this serialization correct? Why do we need to serialize here
+                    let _ = sigma.serialize(&mut sigma_bytes);
+
+                    hasher.update(&sigma_bytes[..]);
+
+                    let mut reader = hasher.finalize_xof();
+
+                    let mut beacon_value = [0_u8; LAMBDA >> 3];
+
+                    XofReader::read(&mut reader, &mut beacon_value);
+
+                    // Print beacon value
+                    println!(
+                        "Node {} beacon Value for epoch {}: {:?}\n\n",
+                        self.id, self.current_epoch, beacon_value
+                    );
+
+                    // Erase entry for previous epoch from sigma_map
+                    self.sigma_map.remove(&self.current_epoch);
+
+                    // Increment epoch counter
+                    self.current_epoch += 1;
+
+                    // Compute new epoch generator
+                    self.epoch_generator =
+                        hash_to_group::<ComGroup<E>>(PERSONA, &self.current_epoch.to_le_bytes())
+                            .unwrap()
+                            .into_affine();
+
+                    // Beacon epoch phase computations
+                    let proof = self.compute_sigma();
+
+                    // Broadcast to all participants
+                    let msg = SigmaMessage {
+                        epoch: self.current_epoch,
+                        id: self.id,
+                        sigma: proof.sigma,
+                        pi: proof.pi,
+                        test_message: format!("Hello from node {}. This is a broadcast", self.id),
+                    };
+                    self.broadcast(msg).await;
                 }
+            } else {
+                // will likely never need to be executed
+                self.sigma_map.insert(
+                    self.current_epoch,
+                    HashMap::<usize, (ComGroup<E>, GT<E>)>::new(),
+                );
             }
         }
     }
 
     /// Broadcast a given message to every node in the network.
-    async fn broadcast(&mut self, msg: BroadcastMessage<E>) {
-        let bytes = Bytes::from(bincode::serialize(&msg).unwrap());
-        self.sender.broadcast(self.nodes.clone(), bytes).await;
+    async fn broadcast(&mut self, msg: SigmaMessage<E>) {
+        let mut compressed_bytes = Vec::new();
+        msg.serialize(&mut compressed_bytes).unwrap();
+        self.sender
+            .broadcast(self.nodes.clone(), compressed_bytes.into())
+            .await;
+        println!("{} broadcasting", self.id);
     }
 
-    fn compute_sigma(&self) -> ((ComGroup<E>, GT<E>), <DLEQProof<ComGroup<E>, ComGroup<E>> as NIZKProof>::Proof) {
+    fn compute_sigma(&self) -> Proof<E> {
         // Fetch node's random scalar used for its commitment.
         let a_i = self.cm.a_i;
 
         let sigma = (
             self.epoch_generator.mul(a_i).into_affine(),
-            <E as PairingEngine>::pairing::<EncGroup<E>, ComGroup<E>>(self.sk.into(), self.epoch_generator.into()),
+            <E as PairingEngine>::pairing::<EncGroup<E>, ComGroup<E>>(
+                self.sk.into(),
+                self.epoch_generator.into(),
+            ),
         );
 
         let srs = DLEQSRS::<ComGroup<E>, ComGroup<E>> {
@@ -228,31 +245,33 @@ impl<E: PairingEngine> Core<E> {
 
         let dleq = DLEQProof { srs };
 
-        let pi = dleq.prove(self.rng, &a_i).unwrap();
+        // TODO: is it ok to create a new rng every time this is run?
+        // TODO: unwrap
+        let pi = dleq.prove(&mut thread_rng(), &a_i).unwrap();
 
-        (sigma, pi)
+        Proof { sigma, pi }
     }
 
     pub async fn run(&mut self) {
         // Compute initial sigma and DLEQ proof
-        let (sigma, pi) = self.compute_sigma();
+        let proof = self.compute_sigma();
 
         // Broadcast to all participants
-        let msg = BroadcastMessage::SigmaMessage((self.current_epoch, self.id, sigma, pi));
+        let msg = SigmaMessage {
+            epoch: self.current_epoch,
+            id: self.id,
+            sigma: proof.sigma,
+            pi: proof.pi,
+            test_message: format!("Hello from node {}. This is the initial broadcast", self.id),
+        };
         self.broadcast(msg).await;
 
         // Listen to incoming messages and process them. Note: self.rx is the channel where we can
         // retrieve data from the message receiver.
         loop {
-            tokio::select! {
-                Some(message) = self.rx.recv() => match message {
-                    BroadcastMessage::SigmaMessage(sigma_tup) => self.handle_sigma(sigma_tup).await,
-                    //BroadcastMessage::Ready(v) => self.handle_ready(v).await,
-                },
-                Some(_) = self.rx_term.recv() => {
-                    println!("Node {} terminating..", self.id);
-                    return;
-                }
+            if let Some(message) = self.rx.recv().await {
+                println!("{} is receiving from {}. Mes: {}", self.id, message.id, message.test_message);
+                self.handle_sigma(message).await;
             };
         }
     }

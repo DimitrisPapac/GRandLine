@@ -15,7 +15,12 @@ use crate::{
 pub struct Node;
 
 impl Node {
-    pub async fn new(id: usize, nodes: Vec<SocketAddr>, num_participants: usize, num_faults: usize) {
+    pub async fn new(
+        id: usize,
+        nodes: Vec<SocketAddr>,
+        num_participants: usize,
+        num_faults: usize,
+    ) {
         // Create a channel for the message receiver. The receiver receives data from incoming
         // tcp connections and puts this data into the channel. The data is retreives via the rx
         // channel.
@@ -28,7 +33,7 @@ impl Node {
         let input = setup::<Bls12_381>(num_participants, num_faults);
 
         sleep(Duration::from_millis(500)).await;
-        
+
         Core::spawn(id, nodes, sender, rx, num_participants, num_faults, input);
     }
 }
