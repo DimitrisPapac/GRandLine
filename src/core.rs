@@ -1,31 +1,43 @@
-use std::collections::HashSet;
-use std::ops::{Mul, Neg};
-use std::{collections::HashMap, net::SocketAddr};
-
 use bytes::Bytes;
-use optrand_pvss::modified_scrape::poly::lagrange_interpolation_gt;
-use optrand_pvss::nizk::dleq::DLEQProof;
-use optrand_pvss::nizk::scheme::NIZKProof;
-use optrand_pvss::nizk::utils::hash::hash_to_group;
-use rand::rngs::ThreadRng;
-use sha3::Shake256;
-use sha3::digest::{ExtendableOutput, XofReader, Update};
+use rand::{rngs::ThreadRng, thread_rng};
+use sha3::{
+    digest::{ExtendableOutput, XofReader, Update},
+    Shake256,
+};
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    ops::{Mul, Neg},
+};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-use crate::Commitment;
-use crate::{message::BroadcastMessage, network::SimpleSender};
+use crate::{
+    Commitment,
+    message::BroadcastMessage,
+    network::SimpleSender,
+};
 
-use optrand_pvss::{ComGroup, EncGroup, GT};
+use optrand_pvss::{
+    ComGroup,
+    EncGroup,
+    GT,
+    modified_scrape::{
+        config::Config,
+        poly::lagrange_interpolation_gt,
+    },
+    nizk::{
+        dleq::{
+            DLEQProof,
+            srs::SRS as DLEQSRS,
+        },
+        scheme::NIZKProof,
+        utils::hash::hash_to_group,
+    },
+};
 
 use ark_ec::{AffineCurve, ProjectiveCurve, PairingEngine};
 use ark_ff::One;
 use ark_serialize::CanonicalSerialize;
-use rand::thread_rng;
-
-use optrand_pvss::modified_scrape::config::Config;
-//use optrand_pvss::modified_scrape::srs::SRS;
-//use optrand_pvss::signature::schnorr::srs::SRS as SCHSRS;
-use optrand_pvss::nizk::dleq::srs::SRS as DLEQSRS;
 
 
 //#[cfg(test)]
@@ -33,7 +45,7 @@ use optrand_pvss::nizk::dleq::srs::SRS as DLEQSRS;
 //pub mod core_tests;
 
 const PERSONA: &[u8] = b"OnePiece";
-const LAMBDA: usize = 256;
+const LAMBDA: usize = 256;   // main security parameter
 
 pub struct Core<E: PairingEngine> {
     id: usize,
