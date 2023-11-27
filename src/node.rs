@@ -34,6 +34,8 @@ impl Node {
 
         sleep(Duration::from_millis(500)).await;
 
-        Core::spawn(id, nodes, sender, rx, num_participants, num_faults, input);
+        let mut addresses = nodes.clone();
+        addresses.remove(id);
+        Core::spawn(id, addresses, sender, rx, num_participants, num_faults, input);
     }
 }

@@ -1,3 +1,4 @@
+use async_recursion::async_recursion;
 use rand::thread_rng;
 use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
@@ -44,13 +45,12 @@ pub struct Core<E: PairingEngine> {
     nodes: Vec<SocketAddr>,
     sender: SimpleSender,
     rx: Receiver<SigmaMessage<E>>,
-    _num_participants: usize,
+    num_participants: usize,
     _num_faults: usize,
     config: Config<E>,
     _pks: Vec<ComGroup<E>>,
     sk: EncGroup<E>,
     cms: Vec<Commitment<E>>,
-    qual: HashSet<usize>,
     current_epoch: u64,
     epoch_generator: ComGroup<E>,
     sigma_map: HashMap<u64, HashMap<usize, (ComGroup<E>, GT<E>)>>, // {epoch -> {id -> sigma_id}}
@@ -66,7 +66,7 @@ impl<E: PairingEngine> Core<E> {
         num_faults: usize,
         input: Input<E>,
     ) {
-        println!("{} spawning Core", id);
+        println!("{} spawning Core.", id);
 
         // Set initial values for epoch counter, epoch generator, and sigma_map
         let epoch_generator = hash_to_group::<ComGroup<E>>(PERSONA, &0_u128.to_le_bytes())
@@ -79,13 +79,12 @@ impl<E: PairingEngine> Core<E> {
                 nodes,
                 sender,
                 rx,
-                _num_participants: num_participants,
+                num_participants,
                 _num_faults: num_faults,
                 config: input.config,
                 _pks: input.pks,
                 sk: input.sks[id],
                 cms: input.commitments.clone(),
-                qual: input.qual,
                 sigma_map: HashMap::new(),
                 current_epoch: 0,
                 epoch_generator,
@@ -95,6 +94,7 @@ impl<E: PairingEngine> Core<E> {
         });
     }
 
+    #[async_recursion]
     async fn handle_sigma(&mut self, message: SigmaMessage<E>) {
         // let (epoch, orig_id, sigma, pi) = sigma_tup;
 
@@ -103,8 +103,8 @@ impl<E: PairingEngine> Core<E> {
             return;
         }
 
-        // If the sender is not qualified return.
-        if !self.qual.contains(&message.id) {
+        // Check if the sender is qualified
+        if message.id >= self.num_participants {
             return;
         }
 
@@ -122,13 +122,15 @@ impl<E: PairingEngine> Core<E> {
         }
 
         let pairs = [
-            (self.cms[message.id].part2.neg().into(), self.epoch_generator.into()),
+            (
+                self.cms[message.id].part2.neg().into(),
+                self.epoch_generator.into(),
+            ),
             (self.config.srs.g1.neg().into(), message.sigma.0.into()),
         ];
 
         let prod = <E as PairingEngine>::product_of_pairings(pairs.iter());
 
-        // TODO: I don't know what it does, but if it's false return for readability.
         if !(message.sigma.1).mul(prod).is_one() {
             return;
         }
@@ -170,20 +172,19 @@ impl<E: PairingEngine> Core<E> {
         let mut points = Vec::new();
         let mut evals = Vec::new();
 
-        for (&id, (_, e)) in sigmas {
-            points.push(id as u64);
-            evals.push(*e);
+        for i in 0..(self.num_participants) {
+            if sigmas.contains_key(&i) {
+                points.push(i as u64);
+                evals.push(sigmas[&i].1)
+            }
         }
 
         let sigma =
             lagrange_interpolation_gt::<E>(&evals, &points, self.config.degree as u64).unwrap();
 
         let mut hasher = Shake256::default();
-
         let mut sigma_bytes = Vec::new();
-        // TODO: is this serialization correct? Why do we need to serialize here
         let _ = sigma.serialize(&mut sigma_bytes);
-
         hasher.update(&sigma_bytes[..]);
 
         let mut reader = hasher.finalize_xof();
@@ -194,11 +195,12 @@ impl<E: PairingEngine> Core<E> {
 
         // Print beacon value
         println!(
-            "Node {} beacon Value for epoch {}: {:?}\n\n",
+            "Node {}, epoch {}: {:?}",
             self.id, self.current_epoch, beacon_value
         );
     }
 
+    #[async_recursion]
     async fn increase_epoch(&mut self) {
         // Increment epoch counter
         self.current_epoch += 1;
@@ -221,19 +223,19 @@ impl<E: PairingEngine> Core<E> {
             id: self.id,
             sigma: proof.sigma,
             pi: proof.pi,
-            test_message: format!("Hello from node {}. This is a broadcast", self.id),
         };
-        self.broadcast(msg).await;
+        self.broadcast(msg.clone()).await;
     }
 
     /// Broadcast a given message to every node in the network.
+    #[async_recursion]
     async fn broadcast(&mut self, msg: SigmaMessage<E>) {
-        let mut compressed_bytes = Vec::new();
-        msg.serialize(&mut compressed_bytes).unwrap();
+        let mut bytes = Vec::new();
+        msg.serialize(&mut bytes).unwrap();
         self.sender
-            .broadcast(self.nodes.clone(), compressed_bytes.into())
+            .broadcast(self.nodes.clone(), bytes.into())
             .await;
-        println!("{} broadcasting", self.id);
+        self.handle_sigma(msg).await;
     }
 
     fn compute_sigma(&self) -> Proof<E> {
@@ -272,18 +274,13 @@ impl<E: PairingEngine> Core<E> {
             id: self.id,
             sigma: proof.sigma,
             pi: proof.pi,
-            test_message: format!("Hello from node {}. This is the initial broadcast", self.id),
         };
-        self.broadcast(msg).await;
+        self.broadcast(msg.clone()).await;
 
         // Listen to incoming messages and process them. Note: self.rx is the channel where we can
         // retrieve data from the message receiver.
         loop {
             if let Some(message) = self.rx.recv().await {
-                println!(
-                    "{} is receiving from {}. Mes: {}",
-                    self.id, message.id, message.test_message
-                );
                 self.handle_sigma(message).await;
             };
         }
