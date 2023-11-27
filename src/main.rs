@@ -1,33 +1,41 @@
 use ark_ec::{AffineCurve, ProjectiveCurve, PairingEngine};
 use ark_ff::{UniformRand, One};
-use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
+use ark_serialize::{CanonicalSerialize, CanonicalDeserialize, Read, SerializationError};
 use ark_std::collections::BTreeMap;
 
 use rand::thread_rng;
-use std::marker::PhantomData;
-use std::io::Write;
-use std::fs::{self, File};
-use std::net::SocketAddr;
-use std::ops::Neg;
-use std::path::Path;
+use std::{
+    collections::HashSet,
+    fs::{self, File},
+    io::Write,
+    marker::PhantomData,
+    net::SocketAddr,
+    ops::Neg,
+    path::Path,
+};
 use tokio::time::{sleep, Duration};
 
-use optrand_pvss::{ComGroup, EncGroup, Scalar};
-use optrand_pvss::modified_scrape::errors::PVSSError;
-use optrand_pvss::modified_scrape::pvss::PVSSCore;
-use optrand_pvss::modified_scrape::decryption::DecryptedShare;
-use optrand_pvss::modified_scrape::node::Node;
-use optrand_pvss::modified_scrape::participant::Participant;
-use optrand_pvss::modified_scrape::dealer::Dealer;
-use optrand_pvss::generate_production_keypair;
-use optrand_pvss::signature::schnorr::SchnorrSignature;
-use optrand_pvss::modified_scrape::config::Config;
-use optrand_pvss::signature::scheme::SignatureScheme;
-use optrand_pvss::modified_scrape::srs::SRS;
-use optrand_pvss::signature::schnorr::srs::SRS as SCHSRS;
-use std::collections::HashSet;
-use ark_serialize::SerializationError;
-use ark_serialize::Read;
+use optrand_pvss::{
+    ComGroup,
+    EncGroup,
+    generate_production_keypair,
+    modified_scrape::{
+        config::Config,
+        dealer::Dealer,
+        decryption::DecryptedShare,
+        errors::PVSSError,
+        node::Node,
+        participant::Participant,
+        pvss::PVSSCore,
+        srs::SRS,
+    },
+    Scalar,
+    signature::{
+        scheme::SignatureScheme,
+        schnorr::SchnorrSignature,
+        schnorr::srs::SRS as SCHSRS,
+    },
+};
 
 
 mod core;
@@ -272,5 +280,5 @@ async fn main() {
         });
     }
 
-    sleep(Duration::from_millis(5_000)).await;
+    sleep(Duration::from_millis(50)).await;
 }
