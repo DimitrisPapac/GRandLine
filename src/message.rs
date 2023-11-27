@@ -12,5 +12,4 @@ pub struct SigmaMessage<E: PairingEngine> {
     pub id: usize,
     pub sigma: (ComGroup<E>, GT<E>),
     pub pi: <DLEQProof<ComGroup<E>, ComGroup<E>> as NIZKProof>::Proof,
-    pub test_message: String,
 }

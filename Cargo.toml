@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 optrand_pvss = {git="https://github.com/DimitrisPapac/Optrand-PVSS.git"}
-
+async-recursion = "1.0.5"
 tokio = { version = "1.5.0", features = ["full"] }
 tokio-util = { version = "0.6.6", features = ["codec"] }
 futures = "0.3.14"
