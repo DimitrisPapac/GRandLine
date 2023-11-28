@@ -32,6 +32,7 @@ mod node;
 
 const IP_START: usize = 9_000;
 
+#[derive(Debug)]
 pub struct Input<E: PairingEngine> {
     pub config: Config<E>,
     pub pks: Vec<ComGroup<E>>,
@@ -289,8 +290,9 @@ fn setup<E: PairingEngine>(num_participants: usize, num_faults: usize) -> Input<
 
 #[tokio::main]
 async fn main() {
-    let num_participants = 6; // temporary value for testing purposes
+    let num_participants = 8; // temporary value for testing purposes
     let num_faults = (num_participants / 2) - 1; // assume maximum number of faults
+    println!("Max faults: {}", num_faults);
 
     // Create local ip addresses with different ports.
     let addresses = (0..num_participants)
@@ -309,5 +311,5 @@ async fn main() {
         });
     }
 
-    sleep(Duration::from_millis(1000000)).await;
+    sleep(Duration::from_millis(20_000)).await;
 }

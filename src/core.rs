@@ -41,11 +41,11 @@ struct Proof<E: PairingEngine> {
 
 pub struct Core<E: PairingEngine> {
     id: usize,
-    nodes: Vec<SocketAddr>,
+    nodes: Vec<SocketAddr>, // Note: does not contain the node's own ip.
     sender: SimpleSender,
     rx: Receiver<SigmaMessage<E>>,
     num_participants: usize,
-    _num_faults: usize,
+    num_faults: usize,
     config: Config<E>,
     _pks: Vec<ComGroup<E>>,
     sk: EncGroup<E>,
@@ -79,7 +79,7 @@ impl<E: PairingEngine> Core<E> {
                 sender,
                 rx,
                 num_participants,
-                _num_faults: num_faults,
+                num_faults,
                 config: input.config,
                 _pks: input.pks,
                 sk: input.sks[id],
@@ -99,11 +99,13 @@ impl<E: PairingEngine> Core<E> {
 
         // Return if we receive a message for a previous epoch.
         if message.epoch < self.current_epoch {
+            // println!("Node {}, Epoch {}: Received message with epoch number {}", self.id, self.current_epoch, message.epoch);
             return;
         }
 
         // Check if the sender is qualified
         if message.id >= self.num_participants {
+            println!("Node {}, Epoch {}: Received unqualified message", self.id, self.current_epoch);
             return;
         }
 
@@ -149,13 +151,12 @@ impl<E: PairingEngine> Core<E> {
         // Check if we have enough reconstruction points.
         match self.sigma_map.get(&self.current_epoch) {
             Some(sigmas) => {
-                if sigmas.len() >= self.config.degree + 1 {
+                if sigmas.len() >= self.num_participants - self.num_faults && sigmas.contains_key(&0) {
                     self.compute_beacon();
                     self.increase_epoch().await;
                 }
             }
             None => {
-                // TODO: maybe check return value?
                 self.sigma_map.insert(
                     self.current_epoch,
                     HashMap::<usize, (ComGroup<E>, GT<E>)>::new(),
@@ -194,8 +195,8 @@ impl<E: PairingEngine> Core<E> {
 
         // Print beacon value
         println!(
-            "Node {}, epoch {}: {:?}",
-            self.id, self.current_epoch, beacon_value
+            "Node {}, epoch {}: {:?}. Got keys from: {:?}",
+            self.id, self.current_epoch, beacon_value, points
         );
     }
 
@@ -223,7 +224,7 @@ impl<E: PairingEngine> Core<E> {
             sigma: proof.sigma,
             pi: proof.pi,
         };
-        self.broadcast(msg.clone()).await;
+        self.broadcast(msg).await;
     }
 
     /// Broadcast a given message to every node in the network.
