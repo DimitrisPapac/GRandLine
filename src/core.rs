@@ -11,7 +11,7 @@ use std::{
 };
 use tokio::sync::mpsc::Receiver;
 
-use crate::{message::SigmaMessage, network::SimpleSender, Commitment, Input};
+use crate::{config::Commitment, config::Input, message::SigmaMessage, network::SimpleSender};
 
 use optrand_pvss::{
     modified_scrape::{config::Config, poly::lagrange_interpolation_gt},
@@ -95,8 +95,6 @@ impl<E: PairingEngine> Core<E> {
 
     #[async_recursion]
     async fn handle_sigma(&mut self, message: SigmaMessage<E>) {
-        // let (epoch, orig_id, sigma, pi) = sigma_tup;
-
         // Return if we receive a message for a previous epoch.
         if message.epoch < self.current_epoch {
             // println!("Node {}, Epoch {}: Received message with epoch number {}", self.id, self.current_epoch, message.epoch);
@@ -105,10 +103,14 @@ impl<E: PairingEngine> Core<E> {
 
         // Check if the sender is qualified
         if message.id >= self.num_participants {
-            println!("Node {}, Epoch {}: Received unqualified message", self.id, self.current_epoch);
+            println!(
+                "Node {}, Epoch {}: Received unqualified message",
+                self.id, self.current_epoch
+            );
             return;
         }
 
+        // Check if the message is correct.
         let stmnt = (message.sigma.0, self.cms[message.id].part1);
         let srs = DLEQSRS::<ComGroup<E>, ComGroup<E>> {
             g_public_key: self.epoch_generator,
@@ -129,29 +131,42 @@ impl<E: PairingEngine> Core<E> {
             ),
             (self.config.srs.g1.neg().into(), message.sigma.0.into()),
         ];
-
         let prod = <E as PairingEngine>::product_of_pairings(pairs.iter());
-
         if !(message.sigma.1).mul(prod).is_one() {
             return;
         }
 
-        let inner = self.sigma_map.get_mut(&message.epoch);
+        // Put the messages' sigma into the sigma hash map.
+        self.store_sigma(&message);
 
-        if inner.is_some() {
-            // if epoch already exists
-            inner.unwrap().insert(message.id, message.sigma);
-        } else {
-            // no entry for this epoch
-            let mut mp = HashMap::<usize, (ComGroup<E>, GT<E>)>::new();
-            mp.insert(message.id, message.sigma);
-            self.sigma_map.insert(message.epoch, mp);
+        // Try to construct a beacon value.
+        self.try_reconstruction().await;
+    }
+
+    /// Stores the sigma of a given message in the sigma hash map.
+    fn store_sigma(&mut self, message: &SigmaMessage<E>) {
+        match self.sigma_map.get_mut(&message.epoch) {
+            Some(sigmas) => {
+                sigmas.insert(message.id, message.sigma);
+            }
+            None => {
+                let mut mp = HashMap::<usize, (ComGroup<E>, GT<E>)>::new();
+                mp.insert(message.id, message.sigma);
+                self.sigma_map.insert(message.epoch, mp);
+            }
         }
+    }
 
+    /// Checks if we have enough reconstruction points for the current epoch. If yes we can create a
+    /// beacon value.
+    async fn try_reconstruction(&mut self) {
         // Check if we have enough reconstruction points.
         match self.sigma_map.get(&self.current_epoch) {
             Some(sigmas) => {
-                if sigmas.len() >= self.num_participants - self.num_faults && sigmas.contains_key(&0) {
+                // TODO: FIX
+                if sigmas.len() >= self.num_participants - self.num_faults
+                    && sigmas.contains_key(&0)
+                {
                     self.compute_beacon();
                     self.increase_epoch().await;
                 }
@@ -165,6 +180,7 @@ impl<E: PairingEngine> Core<E> {
         }
     }
 
+    /// Computes a beacon value out of the construction points for the current epoch.
     fn compute_beacon(&mut self) {
         let sigmas = self.sigma_map.get(&self.current_epoch).unwrap();
 
@@ -182,15 +198,13 @@ impl<E: PairingEngine> Core<E> {
         let sigma =
             lagrange_interpolation_gt::<E>(&evals, &points, self.config.degree as u64).unwrap();
 
+        // Generate the beacon value using sigma.
         let mut hasher = Shake256::default();
         let mut sigma_bytes = Vec::new();
         let _ = sigma.serialize(&mut sigma_bytes);
         hasher.update(&sigma_bytes[..]);
-
         let mut reader = hasher.finalize_xof();
-
         let mut beacon_value = [0_u8; LAMBDA >> 3];
-
         XofReader::read(&mut reader, &mut beacon_value);
 
         // Print beacon value
@@ -200,13 +214,15 @@ impl<E: PairingEngine> Core<E> {
         );
     }
 
+    /// Deletes the no longer needed entries from the sigma hash map, computes a new epoch generator
+    /// and broadcasts the new sigma.
     #[async_recursion]
     async fn increase_epoch(&mut self) {
-        // Increment epoch counter
-        self.current_epoch += 1;
-
         // Erase entry for previous epoch from sigma_map
         self.sigma_map.remove(&self.current_epoch);
+
+        // Increment epoch counter
+        self.current_epoch += 1;
 
         // Compute new epoch generator
         self.epoch_generator =
@@ -214,6 +230,12 @@ impl<E: PairingEngine> Core<E> {
                 .unwrap()
                 .into_affine();
 
+        self.broadcast_sigma().await;
+    }
+
+    /// Compute and broadcast sigma for the current epoch.
+    #[async_recursion]
+    async fn broadcast_sigma(&mut self) {
         // Beacon epoch phase computations
         let proof = self.compute_sigma();
 
@@ -238,6 +260,7 @@ impl<E: PairingEngine> Core<E> {
         self.handle_sigma(msg).await;
     }
 
+    /// Computes and returns a sigma for the current epoch.
     fn compute_sigma(&self) -> Proof<E> {
         // Fetch node's random scalar used for its commitment.
         let a_i = self.cms[self.id].a_i;
@@ -263,17 +286,8 @@ impl<E: PairingEngine> Core<E> {
     }
 
     pub async fn run(&mut self) {
-        // Compute initial sigma and DLEQ proof
-        let proof = self.compute_sigma();
-
-        // Broadcast to all participants
-        let msg = SigmaMessage {
-            epoch: self.current_epoch,
-            id: self.id,
-            sigma: proof.sigma,
-            pi: proof.pi,
-        };
-        self.broadcast(msg.clone()).await;
+        // Broadcast initial sigma.
+        self.broadcast_sigma().await;
 
         // Listen to incoming messages and process them. Note: self.rx is the channel where we can
         // retrieve data from the message receiver.

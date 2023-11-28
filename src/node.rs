@@ -9,7 +9,7 @@ use tokio::{
 use crate::{
     core::Core,
     network::{MessageReceiver, SimpleSender},
-    setup,
+    config::setup,
 };
 
 pub struct Node;
