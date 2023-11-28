@@ -1,5 +1,7 @@
+use ark_bls12_381::Bls12_381;
 use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::{One, UniformRand};
+use ark_poly::{polynomial::UVPolynomial, Polynomial};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Read, SerializationError};
 use ark_std::collections::BTreeMap;
 
@@ -9,15 +11,17 @@ use std::{
     fs::{self, File},
     io::Write,
     marker::PhantomData,
+    net::SocketAddr,
     ops::Neg,
     path::Path,
 };
+use tokio::time::{sleep, Duration};
 
 use optrand_pvss::{
     generate_production_keypair,
     modified_scrape::{
         config::Config, dealer::Dealer, decryption::DecryptedShare, errors::PVSSError, node::Node,
-        participant::Participant, pvss::PVSSCore, srs::SRS,
+        participant::Participant, pvss::PVSSCore, srs::SRS, poly::Polynomial as Poly,
     },
     signature::{scheme::SignatureScheme, schnorr::srs::SRS as SCHSRS, schnorr::SchnorrSignature},
     ComGroup, EncGroup, Scalar,
@@ -126,10 +130,10 @@ fn generate_setup_files<E: PairingEngine>(
         nodes.push(node);
     }
 
-    // Generate a vector of random scalars
-    let s = (0..num_participants)
-        .map(|_| <E as PairingEngine>::Fr::rand(rng))
-        .collect::<Vec<_>>();
+    let f = Poly::<E>::rand(degree, rng);
+    let s = (1..=num_participants)
+            .map(|i| f.evaluate(&Scalar::<E>::from(i as u64)))
+            .collect::<Vec<_>>();
 
     let pvss_core = PVSSCore::<E> {
         encs: (0..num_participants)
