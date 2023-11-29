@@ -22,6 +22,8 @@ ark-poly = { version = "^0.2.0", features = [ "std" ] }
 ark-serialize = { version = "^0.2.0", features = [ "std" ] }
 ark-std = { version = "^0.2.0", features = [ "std" ] }
 clap = { version = "4.4.10", features = ["derive"] }
+log = "0.4.20"
+env_logger = "0.10.1"
 
 [[bin]]
 name = "generator"

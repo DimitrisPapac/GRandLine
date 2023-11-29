@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use ark_ec::PairingEngine;
 use ark_serialize::CanonicalDeserialize;
 use futures::StreamExt;
+use log::{trace, warn};
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc::Sender,
@@ -16,22 +17,20 @@ use crate::message::SigmaMessage;
 //pub mod receiver_tests;
 
 // For each incoming request we spawn a new worker responsible to receive messages and forward them.
-pub struct MessageReceiver<E: PairingEngine> {
+pub struct SimpleReceiver<E: PairingEngine> {
     /// Address to listen to.
     address: SocketAddr,
 
     /// Channel to send received messages to.
-    deliver: Sender<SigmaMessage::<E>>,
+    deliver: Sender<SigmaMessage<E>>,
 }
 
-impl<E: PairingEngine> MessageReceiver<E> {
-    pub fn spawn(address: SocketAddr, deliver: Sender<SigmaMessage<E>>) {
-        tokio::spawn(async move {
-            Self { address, deliver }.run().await;
-        });
+impl<E: PairingEngine> SimpleReceiver<E> {
+    pub fn new(address: SocketAddr, deliver: Sender<SigmaMessage<E>>) -> Self {
+        Self { address, deliver }
     }
 
-    async fn run(&self) {
+    pub async fn run(&self) {
         // Bind to given ip address
         let listener = TcpListener::bind(&self.address)
             .await
@@ -41,18 +40,20 @@ impl<E: PairingEngine> MessageReceiver<E> {
         // responsible for handling the connection.
         loop {
             // Accept incoming connection and store it as socket.
-            let (socket, _) = match listener.accept().await {
+            let (socket, addr) = match listener.accept().await {
                 Ok(value) => value,
                 Err(_e) => {
                     continue;
                 }
             };
+            trace!("Incoming connection from {:?}", addr);
             // Spawn worker with socket as argument and channel, where he can put his data into.
             Self::spawn_worker(socket, self.deliver.clone()).await;
         }
     }
 
     async fn spawn_worker(socket: TcpStream, deliver: Sender<SigmaMessage<E>>) {
+        trace!("Spawning worker");
         tokio::spawn(async move {
             let transport = Framed::new(socket, LengthDelimitedCodec::new());
             let (_, mut reader) = transport.split();
@@ -61,12 +62,13 @@ impl<E: PairingEngine> MessageReceiver<E> {
                     Ok(message) => {
                         // Deserialize network message.
                         let mes = SigmaMessage::deserialize(&*message).unwrap();
+                        trace!("Received message from {}", mes.id);
                         // Put message into channel, such that it can be retreived with the receiving
                         // end of the channel.
                         deliver.send(mes).await.unwrap();
                     }
-                    Err(_e) => {
-                        // TODO: log
+                    Err(e) => {
+                        warn!("Error receiving data {}", e);
                         return;
                     }
                 }

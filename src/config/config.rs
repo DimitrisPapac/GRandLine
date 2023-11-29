@@ -44,14 +44,15 @@ pub struct Commitment<E: PairingEngine> {
 
 unsafe impl<E: PairingEngine> Send for Commitment<E> {}
 
+#[allow(dead_code)]
 pub fn generate_setup_files<E: PairingEngine>(
     num_participants: usize,
     num_faults: usize,
 ) {
-    let config_path = format!("configs/config_{}_{}", num_participants, num_faults);
-    let pks_path = format!("configs/pks_{}_{}", num_participants, num_faults);
-    let sks_path = format!("configs/sks_{}_{}", num_participants, num_faults);
-    let cms_path = format!("configs/cms_{}_{}", num_participants, num_faults);
+    let cfg_path = format!("configs/{}_{}cfg", num_participants, num_faults);
+    let pks_path = format!("configs/{}_{}pks", num_participants, num_faults);
+    let sks_path = format!("configs/{}_{}sks", num_participants, num_faults);
+    let cms_path = format!("configs/{}_{}cms", num_participants, num_faults);
     let rng = &mut thread_rng();
 
     // Generate new srs and config
@@ -67,7 +68,7 @@ pub fn generate_setup_files<E: PairingEngine>(
     let mut conf_bytes = vec![];
     conf.serialize(&mut conf_bytes).unwrap();
 
-    let mut conf_file = fs::File::create(&config_path).unwrap();
+    let mut conf_file = fs::File::create(&cfg_path).unwrap();
 
     conf_file.write_all(&conf_bytes).unwrap();
 
@@ -200,14 +201,15 @@ pub fn generate_setup_files<E: PairingEngine>(
     cms_file.write_all(&cms_bytes).unwrap();
 }
 
+#[allow(dead_code)]
 pub fn parse_files<E: PairingEngine>(num_participants: usize, num_faults: usize) -> Input<E> {
-    let config_path = format!("configs/config_{}_{}", num_participants, num_faults);
-    let pks_path = format!("configs/pks_{}_{}", num_participants, num_faults);
-    let sks_path = format!("configs/sks_{}_{}", num_participants, num_faults);
-    let cms_path = format!("configs/cms_{}_{}", num_participants, num_faults);
+    let cfg_path = format!("configs/{}_{}cfg", num_participants, num_faults);
+    let pks_path = format!("configs/{}_{}pks", num_participants, num_faults);
+    let sks_path = format!("configs/{}_{}sks", num_participants, num_faults);
+    let cms_path = format!("configs/{}_{}cms", num_participants, num_faults);
 
     // Read config from file
-    let config = Config::<E>::deserialize(&*fs::read(&config_path).unwrap()).unwrap();
+    let config = Config::<E>::deserialize(&*fs::read(&cfg_path).unwrap()).unwrap();
 
     // Read SKs from file
     let sks = Vec::<EncGroup<E>>::deserialize(&*fs::read(&sks_path).unwrap()).unwrap();
@@ -241,6 +243,7 @@ pub fn parse_files<E: PairingEngine>(num_participants: usize, num_faults: usize)
     }
 }
 
+#[allow(dead_code)]
 pub fn parse_ip_file(filename: String) -> Vec<SocketAddr> {
     let mut addresses = Vec::new();
 
@@ -257,6 +260,7 @@ pub fn parse_ip_file(filename: String) -> Vec<SocketAddr> {
 
 // The output is wrapped in a Result to allow matching on errors
 // Returns an Iterator to the Reader of the lines of the file.
+#[allow(dead_code)]
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where
     P: AsRef<Path>,
