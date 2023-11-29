@@ -36,11 +36,11 @@ async fn main() {
 
     debug!("Addresses: {:?}", addresses);
 
-    let num_participants = addresses.len(); // temporary value for testing purposes
+    let num_participants = addresses.len();      // number of participants in the network
     let num_faults = (num_participants / 2) - 1; // assume maximum number of faults
 
     let input = parse_files::<Bls12_381>(num_participants, num_faults);
 
-    // Spawn node.
+    // Spawn node
     node::new(args.node_id, addresses, num_participants, num_faults, input).await;
 }
