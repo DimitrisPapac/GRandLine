@@ -12,7 +12,7 @@ mod node;
 
 #[tokio::main]
 async fn main() {
-    let num_participants = 8; // temporary value for testing purposes
+    let num_participants = 4; // temporary value for testing purposes
     let num_faults = (num_participants >> 1) - 1; // assume maximum number of faults
     println!("Max faults: {}", num_faults);
 
@@ -32,6 +32,7 @@ async fn main() {
     let cms_path = format!("cms_{}_{}.txt", num_participants, num_faults);
     let ips_path = format!("ips_{}_{}.txt", num_participants, num_faults);
     generate_setup_files::<Bls12_381>(num_participants, num_faults, &config_path, &pks_path, &sks_path, &cms_path, &ips_path);
+    
 
     // Spawn nodes.
     for i in 0..num_participants {
@@ -41,5 +42,5 @@ async fn main() {
         });
     }
 
-    sleep(Duration::from_millis(10_000)).await;
+    sleep(Duration::from_millis(12_000)).await;
 }

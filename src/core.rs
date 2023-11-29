@@ -20,7 +20,7 @@ use optrand_pvss::{
         scheme::NIZKProof,
         utils::hash::hash_to_group,
     },
-    ComGroup, EncGroup, GT,
+    ComGroup, EncGroup, Hash, GT,
 };
 
 use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
@@ -51,9 +51,9 @@ pub struct Core<E: PairingEngine> {
     sk: EncGroup<E>,
     cms: Vec<Commitment<E>>,
     current_epoch: u64,
-    epoch_generator: ComGroup<E>,
+    epoch_generator: HashMap<u64, ComGroup<E>>,
     sigma_map: HashMap<u64, HashMap<usize, (ComGroup<E>, GT<E>)>>, // Need to also store proofs
-    // beacons_emitted: u64,
+                                                                   // beacons_emitted: u64,
 }
 
 impl<E: PairingEngine> Core<E> {
@@ -68,12 +68,6 @@ impl<E: PairingEngine> Core<E> {
     ) {
         println!("{} spawning Core.", id);
 
-        // Set initial values for epoch counter, epoch generator, and sigma_map
-        let current_epoch = 0_u64;
-        let epoch_generator = hash_to_group::<ComGroup<E>>(PERSONA, &current_epoch.to_le_bytes())
-            .unwrap()
-            .into_affine();
-
         tokio::spawn(async move {
             Self {
                 id,
@@ -87,8 +81,8 @@ impl<E: PairingEngine> Core<E> {
                 sk: input.sks[id],
                 cms: input.commitments.clone(),
                 sigma_map: HashMap::new(),
-                current_epoch,
-                epoch_generator,
+                current_epoch: 0,
+                epoch_generator: HashMap::new(),
                 // beacons_emitted: 0,
             }
             .run()
@@ -104,7 +98,7 @@ impl<E: PairingEngine> Core<E> {
             return;
         }
 
-        // Check if the sender is qualified
+        // Check if the sender is qualified.
         if message.id >= self.num_participants {
             println!(
                 "Node {}, Epoch {}: Received unqualified message",
@@ -113,34 +107,28 @@ impl<E: PairingEngine> Core<E> {
             return;
         }
 
-        // Check if the message is correct wrt my current epoch_generator.
-        let stmnt = (message.sigma.0, self.cms[message.id].part1);
-        let srs = DLEQSRS::<ComGroup<E>, ComGroup<E>> {
-            g_public_key: self.epoch_generator,
-            h_public_key: self.config.srs.g2,
-        };
-        let dleq = DLEQProof::from_srs(srs).unwrap();
+        if message.epoch > self.current_epoch {
+            println!(
+                "Node {}, Epoch {}: Received message from future epoch [{}]",
+                self.id, self.current_epoch, message.epoch
+            );
+        }
 
-        // If the proof is invalid return.
-        if dleq.verify(&stmnt, &message.pi).is_err() {
-            println!("{} got invalid proof from {}", self.id, message.id);
+        // Verify proof.
+        if !self.verify_proof(&message) {
+            println!(
+                "Node {}, Epoch {}: Received invalid proof from {} [epoch {}]",
+                self.id, self.current_epoch, message.id, message.epoch
+            );
             return;
         }
 
-        let pairs = [
-            (
-                self.cms[message.id].part2.neg().into(),
-                self.epoch_generator.into(),
-            ),
-            (
-                self.config.srs.g1.neg().into(),
-                message.sigma.0.into()
-            ),
-        ];
-
-        let prod = <E as PairingEngine>::product_of_pairings(pairs.iter());
-
-        if !(message.sigma.1).mul(prod).is_one() {
+        // Consistency check.
+        if !self.check_consistency(&message) {
+            println!(
+                "Node {}, Epoch {}: Received inconsistent proof from {}",
+                self.id, self.current_epoch, message.id
+            );
             return;
         }
 
@@ -149,6 +137,49 @@ impl<E: PairingEngine> Core<E> {
 
         // Try to construct a beacon value.
         self.try_reconstruction().await;
+    }
+
+    /// TODO: better function name?
+    fn check_consistency(&mut self, message: &SigmaMessage<E>) -> bool {
+        let pairs = [
+            (
+                self.cms[message.id].part2.neg().into(),
+                self.get_generator(message.epoch).into(),
+            ),
+            (self.config.srs.g1.neg().into(), message.sigma.0.into()),
+        ];
+
+        let prod = <E as PairingEngine>::product_of_pairings(pairs.iter());
+
+        (message.sigma.1).mul(prod).is_one()
+    }
+
+    /// Returns the generator for the given epoch. If there is no one create one.
+    fn get_generator(&mut self, epoch: u64) -> ComGroup<E> {
+        match self.epoch_generator.get_mut(&epoch) {
+            Some(generator) => return generator.clone(),
+            None => {
+                let generator =
+                    hash_to_group::<ComGroup<E>>(PERSONA, &epoch.to_le_bytes())
+                        .unwrap()
+                        .into_affine();
+                self.epoch_generator.insert(epoch, generator.clone());
+                return generator;
+            }
+        }
+    }
+
+    /// Given a message verify its proof.
+    /// Returns true if the proof is correct.
+    fn verify_proof(&mut self, message: &SigmaMessage<E>) -> bool {
+        let stmnt = (message.sigma.0, self.cms[message.id].part1);
+        let srs = DLEQSRS::<ComGroup<E>, ComGroup<E>> {
+            g_public_key: self.get_generator(message.epoch),
+            h_public_key: self.config.srs.g2,
+        };
+        let dleq = DLEQProof::from_srs(srs).unwrap();
+
+        dleq.verify(&stmnt, &message.pi).is_ok()
     }
 
     /// Stores the sigma of a given message in the sigma hash map.
@@ -171,10 +202,7 @@ impl<E: PairingEngine> Core<E> {
         // Check if we have enough reconstruction points.
         match self.sigma_map.get(&self.current_epoch) {
             Some(sigmas) => {
-                // TODO: FIX
-                if sigmas.len() >= self.num_faults + 1 // self.num_participants - self.num_faults
-                    //&& sigmas.contains_key(&0)
-                {
+                if sigmas.len() >= self.num_faults + 1 {
                     self.compute_beacon();
                     self.increase_epoch().await;
                 }
@@ -193,13 +221,15 @@ impl<E: PairingEngine> Core<E> {
         let sigmas = self.sigma_map.get(&self.current_epoch).unwrap();
 
         // Reconstruct sigma := e(g_r, SK)
-        let mut points = Vec::new();
         let mut evals = Vec::new();
+        let mut points = Vec::new();
+        let mut points_debug = Vec::new();
 
         for i in 0..(self.num_participants) {
             if sigmas.contains_key(&i) {
-                points.push((i + 1) as u64);   // indices must be in {1, ..., n}
-                evals.push(sigmas[&i].1)
+                evals.push(sigmas[&i].1);
+                points.push((i + 1) as u64); // indices must be in {1, ..., n}
+                points_debug.push(i as u64); // indices must be in {1, ..., n}
             }
         }
 
@@ -217,8 +247,8 @@ impl<E: PairingEngine> Core<E> {
 
         // Print beacon value
         println!(
-            "Node {}, epoch {}: {:?}. Got keys from: {:?}\n",
-            self.id, self.current_epoch, beacon_value, points
+            "Node {}, epoch {}: {:?}. Got messages from: {:?}",
+            self.id, self.current_epoch, beacon_value, points_debug
         );
 
         //self.beacons_emitted += 1;
@@ -231,14 +261,11 @@ impl<E: PairingEngine> Core<E> {
         // Erase entry for previous epoch from sigma_map
         self.sigma_map.remove(&self.current_epoch);
 
+        // Erase entry for previous epoch generator
+        self.epoch_generator.remove(&self.current_epoch);
+
         // Increment epoch counter
         self.current_epoch += 1;
-
-        // Compute new epoch generator
-        self.epoch_generator =
-            hash_to_group::<ComGroup<E>>(PERSONA, &self.current_epoch.to_le_bytes())
-                .unwrap()
-                .into_affine();
 
         self.broadcast_sigma().await;
     }
@@ -256,7 +283,8 @@ impl<E: PairingEngine> Core<E> {
             sigma: proof.sigma,
             pi: proof.pi,
         };
-        self.broadcast(msg).await;
+        self.broadcast(msg.clone()).await;
+        self.handle_sigma(msg).await;
     }
 
     /// Broadcast a given message to every node in the network.
@@ -267,24 +295,25 @@ impl<E: PairingEngine> Core<E> {
         self.sender
             .broadcast(self.nodes.clone(), bytes.into())
             .await;
-        self.handle_sigma(msg).await;
     }
 
     /// Computes and returns a sigma for the current epoch.
-    fn compute_sigma(&self) -> Proof<E> {
+    fn compute_sigma(&mut self) -> Proof<E> {
         // Fetch node's random scalar used for its commitment.
         let a_i = self.cms[self.id].a_i;
 
         let sigma = (
-            self.epoch_generator.mul(a_i).into_affine(),
+            self.get_generator(self.current_epoch)
+                .mul(a_i)
+                .into_affine(),
             <E as PairingEngine>::pairing::<EncGroup<E>, ComGroup<E>>(
                 self.sk.into(),
-                self.epoch_generator.into(),
+                self.get_generator(self.current_epoch).into(),
             ),
         );
 
         let srs = DLEQSRS::<ComGroup<E>, ComGroup<E>> {
-            g_public_key: self.epoch_generator,
+            g_public_key: self.get_generator(self.current_epoch),
             h_public_key: self.config.srs.g2,
         };
 

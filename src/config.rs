@@ -28,7 +28,7 @@ use optrand_pvss::{
 
 pub const IP_START: usize = 9_000;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Input<E: PairingEngine> {
     pub config: Config<E>,
     pub pks: Vec<ComGroup<E>>,
