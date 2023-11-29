@@ -9,7 +9,7 @@ use tokio::{
 use crate::{
     core::Core,
     network::{MessageReceiver, SimpleSender},
-    config::setup,
+    config::*,
 };
 
 pub struct Node;
@@ -30,7 +30,16 @@ impl Node {
 
         // Simulate setup.
         // (config, pks, sks, cms, qual)
-        let input = setup::<Bls12_381>(num_participants, num_faults);
+        // let input = setup::<Bls12_381>(num_participants, num_faults);
+
+        let config_path = format!("config_{}_{}.txt", num_participants, num_faults);
+        let pks_path = format!("pks_{}_{}.txt", num_participants, num_faults);
+        let sks_path = format!("sks_{}_{}.txt", num_participants, num_faults);
+        let cms_path = format!("cms_{}_{}.txt", num_participants, num_faults);
+        let ips_path = format!("ips_{}_{}.txt", num_participants, num_faults);
+
+        let input = parse_files::<Bls12_381>(num_participants, num_faults, &config_path,
+            &pks_path, &sks_path, &cms_path, &ips_path);
 
         sleep(Duration::from_millis(100)).await;
 
