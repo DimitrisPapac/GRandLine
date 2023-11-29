@@ -9,7 +9,7 @@ use tokio::{
 use crate::{
     config::Input,
     core::Core,
-    network::{MessageReceiver, SimpleSender},
+    network::{SimpleReceiver, SimpleSender, SimpleRetransmitter},
 };
 
 pub async fn new<E: PairingEngine>(
@@ -19,24 +19,41 @@ pub async fn new<E: PairingEngine>(
     num_faults: usize,
     input: Input<E>,
 ) {
-    // Create a channel for the message receiver. The receiver receives data from incoming
-    // tcp connections and puts this data into the channel. The data is retreives via the rx
-    // channel.
-    let (tx, rx) = channel(1_000);
-    MessageReceiver::spawn(nodes[id], tx);
-    let sender = SimpleSender::new();
-
-    sleep(Duration::from_millis(100)).await;
+    // Create a channel for networking.
+    let (tx_rec, rx_rec) = channel(1_000);
+    let (tx_send, rx_send) = channel(1_000);
+    let (tx_retransmit, rx_retransmit) = channel(1_000);
 
     let mut addresses = nodes.clone();
     addresses.remove(id);
+
+    // Create a retransmitter, receiver and sender.
+    let mut retransmitter = SimpleRetransmitter::<E>::new(rx_retransmit, tx_send.clone());
+    let receiver = SimpleReceiver::new(nodes[id], tx_rec);
+    let mut sender = SimpleSender::new(rx_send, tx_retransmit, addresses.clone());
+
+    // Run retransmitter, receiver and sender.
+    tokio::spawn(async move {
+        retransmitter.run().await;
+    });
+
+    tokio::spawn(async move {
+        receiver.run().await;
+    });
+
+    tokio::spawn(async move {
+        sender.run().await;
+    });
+
+    sleep(Duration::from_millis(100)).await;
+
     Core::spawn(
         id,
-        addresses,
-        sender,
-        rx,
+        tx_send,
+        rx_rec,
         num_participants,
         num_faults,
         input,
-    ).await;
+    )
+    .await;
 }

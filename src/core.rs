@@ -7,12 +7,11 @@ use sha3::{
 };
 use std::{
     collections::HashMap,
-    net::SocketAddr,
     ops::{Mul, Neg},
 };
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::{config::Commitment, config::Input, message::SigmaMessage, network::SimpleSender};
+use crate::{config::Commitment, config::Input, message::SigmaMessage};
 
 use optrand_pvss::{
     modified_scrape::{config::Config, poly::lagrange_interpolation_gt},
@@ -38,8 +37,7 @@ struct Proof<E: PairingEngine> {
 
 pub struct Core<E: PairingEngine> {
     id: usize,
-    nodes: Vec<SocketAddr>, // Note: does not contain the node's own ip.
-    sender: SimpleSender,
+    tx: Sender<SigmaMessage<E>>,
     rx: Receiver<SigmaMessage<E>>,
     num_participants: usize,
     num_faults: usize,
@@ -55,8 +53,7 @@ pub struct Core<E: PairingEngine> {
 impl<E: PairingEngine> Core<E> {
     pub async fn spawn(
         id: usize,
-        nodes: Vec<SocketAddr>,
-        sender: SimpleSender,
+        sender: Sender<SigmaMessage<E>>,
         rx: Receiver<SigmaMessage<E>>,
         num_participants: usize,
         num_faults: usize,
@@ -66,8 +63,7 @@ impl<E: PairingEngine> Core<E> {
 
         Self {
             id,
-            nodes,
-            sender,
+            tx: sender,
             rx,
             num_participants,
             num_faults,
@@ -284,11 +280,7 @@ impl<E: PairingEngine> Core<E> {
     #[async_recursion]
     async fn broadcast(&mut self, msg: SigmaMessage<E>) {
         trace!("Epoch [{}]: Brodacasting sigma", self.epoch);
-        let mut bytes = Vec::new();
-        msg.serialize(&mut bytes).unwrap();
-        self.sender
-            .broadcast(self.nodes.clone(), bytes.into())
-            .await;
+        self.tx.send(msg).await.unwrap();
     }
 
     /// Computes and returns a sigma for the current epoch.
