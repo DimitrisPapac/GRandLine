@@ -56,7 +56,7 @@ pub struct Core<E: PairingEngine> {
 }
 
 impl<E: PairingEngine> Core<E> {
-    pub fn spawn(
+    pub async fn spawn(
         id: usize,
         nodes: Vec<SocketAddr>,
         sender: SimpleSender,
@@ -67,25 +67,23 @@ impl<E: PairingEngine> Core<E> {
     ) {
         println!("{} spawning Core.", id);
 
-        tokio::spawn(async move {
-            Self {
-                id,
-                nodes,
-                sender,
-                rx,
-                num_participants,
-                num_faults,
-                config: input.config,
-                _pks: input.pks,
-                sk: input.sks[id],
-                commitments: input.commitments.clone(),
-                sigmas: HashMap::new(),
-                epoch: 0,
-                generators: HashMap::new(),
-            }
-            .run()
-            .await;
-        });
+        Self {
+            id,
+            nodes,
+            sender,
+            rx,
+            num_participants,
+            num_faults,
+            config: input.config,
+            _pks: input.pks,
+            sk: input.sks[id],
+            commitments: input.commitments.clone(),
+            sigmas: HashMap::new(),
+            epoch: 0,
+            generators: HashMap::new(),
+        }
+        .run()
+        .await;
     }
 
     #[async_recursion]
