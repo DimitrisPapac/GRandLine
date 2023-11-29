@@ -52,7 +52,8 @@ pub struct Core<E: PairingEngine> {
     cms: Vec<Commitment<E>>,
     current_epoch: u64,
     epoch_generator: ComGroup<E>,
-    sigma_map: HashMap<u64, HashMap<usize, (ComGroup<E>, GT<E>)>>, // {epoch -> {id -> sigma_id}}
+    sigma_map: HashMap<u64, HashMap<usize, (ComGroup<E>, GT<E>)>>, // Need to also store proofs
+    // beacons_emitted: u64,
 }
 
 impl<E: PairingEngine> Core<E> {
@@ -68,7 +69,8 @@ impl<E: PairingEngine> Core<E> {
         println!("{} spawning Core.", id);
 
         // Set initial values for epoch counter, epoch generator, and sigma_map
-        let epoch_generator = hash_to_group::<ComGroup<E>>(PERSONA, &0_u128.to_le_bytes())
+        let current_epoch = 0_u64;
+        let epoch_generator = hash_to_group::<ComGroup<E>>(PERSONA, &current_epoch.to_le_bytes())
             .unwrap()
             .into_affine();
 
@@ -85,8 +87,9 @@ impl<E: PairingEngine> Core<E> {
                 sk: input.sks[id],
                 cms: input.commitments.clone(),
                 sigma_map: HashMap::new(),
-                current_epoch: 0,
+                current_epoch,
                 epoch_generator,
+                // beacons_emitted: 0,
             }
             .run()
             .await;
@@ -110,7 +113,7 @@ impl<E: PairingEngine> Core<E> {
             return;
         }
 
-        // Check if the message is correct.
+        // Check if the message is correct wrt my current epoch_generator.
         let stmnt = (message.sigma.0, self.cms[message.id].part1);
         let srs = DLEQSRS::<ComGroup<E>, ComGroup<E>> {
             g_public_key: self.epoch_generator,
@@ -129,9 +132,14 @@ impl<E: PairingEngine> Core<E> {
                 self.cms[message.id].part2.neg().into(),
                 self.epoch_generator.into(),
             ),
-            (self.config.srs.g1.neg().into(), message.sigma.0.into()),
+            (
+                self.config.srs.g1.neg().into(),
+                message.sigma.0.into()
+            ),
         ];
+
         let prod = <E as PairingEngine>::product_of_pairings(pairs.iter());
+
         if !(message.sigma.1).mul(prod).is_one() {
             return;
         }
@@ -164,8 +172,8 @@ impl<E: PairingEngine> Core<E> {
         match self.sigma_map.get(&self.current_epoch) {
             Some(sigmas) => {
                 // TODO: FIX
-                if sigmas.len() >= self.num_participants - self.num_faults
-                    && sigmas.contains_key(&0)
+                if sigmas.len() >= self.num_faults + 1 // self.num_participants - self.num_faults
+                    //&& sigmas.contains_key(&0)
                 {
                     self.compute_beacon();
                     self.increase_epoch().await;
@@ -190,7 +198,7 @@ impl<E: PairingEngine> Core<E> {
 
         for i in 0..(self.num_participants) {
             if sigmas.contains_key(&i) {
-                points.push(i as u64);
+                points.push((i + 1) as u64);   // indices must be in {1, ..., n}
                 evals.push(sigmas[&i].1)
             }
         }
@@ -209,9 +217,11 @@ impl<E: PairingEngine> Core<E> {
 
         // Print beacon value
         println!(
-            "Node {}, epoch {}: {:?}. Got keys from: {:?}",
+            "Node {}, epoch {}: {:?}. Got keys from: {:?}\n",
             self.id, self.current_epoch, beacon_value, points
         );
+
+        //self.beacons_emitted += 1;
     }
 
     /// Deletes the no longer needed entries from the sigma hash map, computes a new epoch generator
