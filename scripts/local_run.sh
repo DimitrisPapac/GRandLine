@@ -1,6 +1,6 @@
 cargo build --bin app --release
 
-RUNTIME=10
+RUNTIME=30
 
 FILE="${1:-/dev/stdin}"
 IPS=()
@@ -13,7 +13,7 @@ idx=0
 
 for ip in "${IPS[@]}"
 do
-    ./target/release/app $idx ips &
+    ./target/release/app $idx ips &> logs/$idx.log&
     idx=$(($idx+1))
 done
 

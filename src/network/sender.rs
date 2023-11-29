@@ -3,6 +3,7 @@ use std::{collections::HashMap, net::SocketAddr};
 use bytes::Bytes;
 use futures::stream::StreamExt as _;
 use futures::SinkExt;
+use log::{trace, warn};
 use tokio::{
     net::TcpStream,
     sync::mpsc::{channel, Receiver, Sender},
@@ -27,6 +28,7 @@ impl SimpleSender {
     }
 
     fn spawn_connection(address: SocketAddr) -> Sender<Bytes> {
+        trace!("Spawning connection for {:?}", address);
         let (tx, rx) = channel(1_000);
         Connection::spawn(address, rx);
         tx
@@ -79,7 +81,7 @@ impl Connection {
         let (mut writer, _) = match TcpStream::connect(self.address).await {
             Ok(stream) => Framed::new(stream, LengthDelimitedCodec::new()).split(),
             Err(_e) => {
-                // TODO: log
+                warn!("Error trying to connect to {:?}.", self.address);
                 return;
             }
         };
@@ -88,8 +90,9 @@ impl Connection {
         loop {
             // If there is data in the channel retreive it and send it via the tcp connection.
             if let Some(data) = self.receiver.recv().await {
+                trace!("Sending data to {:?}", self.address);
                 if let Err(_e) = writer.send(data.into()).await {
-                    // TODO: log
+                    warn!("Error sending data to {:?}. Closing connection..", self.address);
                     return;
                 }
             }

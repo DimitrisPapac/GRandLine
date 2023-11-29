@@ -44,6 +44,7 @@ pub struct Commitment<E: PairingEngine> {
 
 unsafe impl<E: PairingEngine> Send for Commitment<E> {}
 
+#[allow(dead_code)]
 pub fn generate_setup_files<E: PairingEngine>(
     num_participants: usize,
     num_faults: usize,
@@ -200,6 +201,7 @@ pub fn generate_setup_files<E: PairingEngine>(
     cms_file.write_all(&cms_bytes).unwrap();
 }
 
+#[allow(dead_code)]
 pub fn parse_files<E: PairingEngine>(num_participants: usize, num_faults: usize) -> Input<E> {
     let config_path = format!("configs/config_{}_{}", num_participants, num_faults);
     let pks_path = format!("configs/pks_{}_{}", num_participants, num_faults);
@@ -241,6 +243,7 @@ pub fn parse_files<E: PairingEngine>(num_participants: usize, num_faults: usize)
     }
 }
 
+#[allow(dead_code)]
 pub fn parse_ip_file(filename: String) -> Vec<SocketAddr> {
     let mut addresses = Vec::new();
 
@@ -257,6 +260,7 @@ pub fn parse_ip_file(filename: String) -> Vec<SocketAddr> {
 
 // The output is wrapped in a Result to allow matching on errors
 // Returns an Iterator to the Reader of the lines of the file.
+#[allow(dead_code)]
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where
     P: AsRef<Path>,

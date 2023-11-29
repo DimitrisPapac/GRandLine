@@ -1,4 +1,5 @@
 use async_recursion::async_recursion;
+use log::{info, debug, trace};
 use rand::thread_rng;
 use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
@@ -26,10 +27,6 @@ use optrand_pvss::{
 use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::One;
 use ark_serialize::CanonicalSerialize;
-
-//#[cfg(test)]
-//#[path = "tests/core_tests.rs"]
-//pub mod core_tests;
 
 const PERSONA: &[u8] = b"OnePiece";
 const LAMBDA: usize = 256; // main security parameter
@@ -65,7 +62,7 @@ impl<E: PairingEngine> Core<E> {
         num_faults: usize,
         input: Input<E>,
     ) {
-        println!("{} spawning Core.", id);
+        info!("{} spawning Core.", id);
 
         Self {
             id,
@@ -88,42 +85,43 @@ impl<E: PairingEngine> Core<E> {
 
     #[async_recursion]
     async fn handle_sigma(&mut self, message: SigmaMessage<E>) {
+        trace!("Epoch [{}]: Received sigma from {}, epoch [{}]", self.epoch, message.id, message.epoch);
         // Return if we receive a message for a previous epoch.
         if message.epoch < self.epoch {
-            // println!("Node {}, Epoch {}: Received message with epoch number {}", self.id, self.current_epoch, message.epoch);
+            trace!("Epoch [{}]: Received message from previous epoch [{}]", self.epoch, message.epoch);
             return;
         }
 
         // Check if the sender is qualified.
         if message.id >= self.num_participants {
-            println!(
-                "Node {}, Epoch {}: Received unqualified message",
-                self.id, self.epoch
+            debug!(
+                "Epoch [{}]: Received unqualified message",
+                self.epoch
             );
             return;
         }
 
         if message.epoch > self.epoch {
-            println!(
-                "Node {}, Epoch {}: Received message from future epoch [{}]",
-                self.id, self.epoch, message.epoch
+            debug!(
+                "Epoch [{}]: Received message from future epoch [{}]",
+                self.epoch, message.epoch
             );
         }
 
         // Verify proof.
         if !self.verify_proof(&message) {
-            println!(
-                "Node {}, Epoch {}: Received invalid proof from {} [epoch {}]",
-                self.id, self.epoch, message.id, message.epoch
+            debug!(
+                "Epoch [{}]: Received invalid proof from {} [epoch {}]",
+                self.epoch, message.id, message.epoch
             );
             return;
         }
 
         // Consistency check.
         if !self.check_consistency(&message) {
-            println!(
-                "Node {}, Epoch {}: Received inconsistent proof from {}",
-                self.id, self.epoch, message.id
+            debug!(
+                "Epoch [{}]: Received inconsistent proof from {}",
+                self.epoch, message.id
             );
             return;
         }
@@ -155,6 +153,7 @@ impl<E: PairingEngine> Core<E> {
         match self.generators.get_mut(&epoch) {
             Some(generator) => return generator.clone(),
             None => {
+                trace!("Epoch [{}]: creating generator for epoch [{}]", self.epoch, epoch);
                 let generator = hash_to_group::<ComGroup<E>>(PERSONA, &epoch.to_le_bytes())
                     .unwrap()
                     .into_affine();
@@ -218,13 +217,11 @@ impl<E: PairingEngine> Core<E> {
         // Reconstruct sigma := e(g_r, SK)
         let mut evals = Vec::new();
         let mut points = Vec::new();
-        let mut points_debug = Vec::new(); // Only used for debugging purposes
 
         for i in 0..(self.num_participants) {
             if sigmas.contains_key(&i) {
                 evals.push(sigmas[&i].1);
                 points.push((i + 1) as u64); // indices must be in {1, ..., n}
-                points_debug.push(i as u64);
             }
         }
 
@@ -241,9 +238,9 @@ impl<E: PairingEngine> Core<E> {
         XofReader::read(&mut reader, &mut beacon_value);
 
         // Print beacon value
-        println!(
-            "Node {}, epoch {}: {:?}. Got messages from: {:?}",
-            self.id, self.epoch, beacon_value, points_debug
+        info!(
+            "Epoch [{}]: Beacon value: {:?}.",
+            self.epoch, beacon_value,
         );
 
         //self.beacons_emitted += 1;
@@ -253,6 +250,7 @@ impl<E: PairingEngine> Core<E> {
     /// and broadcasts the new sigma.
     #[async_recursion]
     async fn increase_epoch(&mut self) {
+        trace!("Epoch [{}]: Increasing epoch", self.epoch);
         // Erase entry for previous epoch from sigma_map
         self.sigmas.remove(&self.epoch);
 
@@ -285,6 +283,7 @@ impl<E: PairingEngine> Core<E> {
     /// Broadcast a given message to every node in the network.
     #[async_recursion]
     async fn broadcast(&mut self, msg: SigmaMessage<E>) {
+        trace!("Epoch [{}]: Brodacasting sigma", self.epoch);
         let mut bytes = Vec::new();
         msg.serialize(&mut bytes).unwrap();
         self.sender
@@ -294,6 +293,7 @@ impl<E: PairingEngine> Core<E> {
 
     /// Computes and returns a sigma for the current epoch.
     fn compute_sigma(&mut self) -> Proof<E> {
+        trace!("Epoch [{}]: Computing sigma", self.epoch);
         // Fetch node's random scalar used for its commitment.
         let a_i = self.commitments[self.id].a_i;
 

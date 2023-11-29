@@ -1,6 +1,7 @@
 use ark_bls12_381::Bls12_381;
 use clap::Parser;
 use config::parse_ip_file;
+use log::debug;
 
 use crate::config::parse_files;
 
@@ -25,7 +26,15 @@ async fn main() {
 
     // Parse ip file
     let addresses = parse_ip_file(args.nodes);
-    println!("Addresses: {:?}", addresses);
+
+    // Set up logger
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .format_target(false)
+        .format_timestamp_millis()
+        .init();
+
+    debug!("Addresses: {:?}", addresses);
 
     let num_participants = addresses.len(); // temporary value for testing purposes
     let num_faults = (num_participants / 2) - 1; // assume maximum number of faults
