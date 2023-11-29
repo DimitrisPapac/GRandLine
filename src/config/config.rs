@@ -8,27 +8,24 @@ use rand::thread_rng;
 use std::{
     collections::HashSet,
     fs::{self, File},
-    io::Write,
+    io::{self, BufRead, Write},
     marker::PhantomData,
-    //net::SocketAddr,
+    net::SocketAddr,
     ops::Neg,
     path::Path,
 };
-//use tokio::time::{sleep, Duration};
 
 use optrand_pvss::{
     generate_production_keypair,
     modified_scrape::{
         config::Config, dealer::Dealer, decryption::DecryptedShare, errors::PVSSError, node::Node,
-        participant::Participant, pvss::PVSSCore, srs::SRS, poly::Polynomial as Poly,
+        participant::Participant, poly::Polynomial as Poly, pvss::PVSSCore, srs::SRS,
     },
     signature::{scheme::SignatureScheme, schnorr::srs::SRS as SCHSRS, schnorr::SchnorrSignature},
     ComGroup, EncGroup, Scalar,
 };
 
-pub const IP_START: usize = 9_000;
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Input<E: PairingEngine> {
     pub config: Config<E>,
     pub pks: Vec<ComGroup<E>>,
@@ -49,20 +46,13 @@ unsafe impl<E: PairingEngine> Send for Commitment<E> {}
 
 pub fn generate_setup_files<E: PairingEngine>(
     num_participants: usize,
-    degree: usize,
-    config_path: &str,
-    pks_path: &str,
-    sks_path: &str,
-    cms_path: &str,
-    ips_path: &str,
+    num_faults: usize,
 ) {
+    let config_path = format!("configs/config_{}_{}", num_participants, num_faults);
+    let pks_path = format!("configs/pks_{}_{}", num_participants, num_faults);
+    let sks_path = format!("configs/sks_{}_{}", num_participants, num_faults);
+    let cms_path = format!("configs/cms_{}_{}", num_participants, num_faults);
     let rng = &mut thread_rng();
-
-    let mut ips_file = File::create(ips_path).unwrap();
-    for i in 0..num_participants {
-        let line = format!("127.0.0.1:{}", IP_START + i);
-        writeln!(ips_file, "{}", line).unwrap();
-    }
 
     // Generate new srs and config
     let srs = SRS::<E>::setup(rng).unwrap();
@@ -70,7 +60,7 @@ pub fn generate_setup_files<E: PairingEngine>(
     // Set global configuration parameters
     let conf = Config {
         srs: srs.clone(),
-        degree,
+        degree: num_faults,
         num_participants,
     };
 
@@ -130,12 +120,12 @@ pub fn generate_setup_files<E: PairingEngine>(
     }
 
     // Sample a random polynomial of degree t.
-    let f = Poly::<E>::rand(degree, rng);
+    let f = Poly::<E>::rand(num_faults, rng);
 
     // Compute polynomial evaluations: f(1), ..., f(n).
     let s = (1..=num_participants)
-            .map(|i| f.evaluate(&Scalar::<E>::from(i as u64)))
-            .collect::<Vec<_>>();
+        .map(|i| f.evaluate(&Scalar::<E>::from(i as u64)))
+        .collect::<Vec<_>>();
 
     let pvss_core = PVSSCore::<E> {
         encs: (0..num_participants)
@@ -210,15 +200,12 @@ pub fn generate_setup_files<E: PairingEngine>(
     cms_file.write_all(&cms_bytes).unwrap();
 }
 
-pub fn parse_files<E: PairingEngine>(
-    _num_participants: usize,
-    _num_faults: usize,
-    config_path: &str,
-    pks_path: &str,
-    sks_path: &str,
-    cms_path: &str,
-    _ips_path: &str,
-) -> Input<E> {
+pub fn parse_files<E: PairingEngine>(num_participants: usize, num_faults: usize) -> Input<E> {
+    let config_path = format!("configs/config_{}_{}", num_participants, num_faults);
+    let pks_path = format!("configs/pks_{}_{}", num_participants, num_faults);
+    let sks_path = format!("configs/sks_{}_{}", num_participants, num_faults);
+    let cms_path = format!("configs/cms_{}_{}", num_participants, num_faults);
+
     // Read config from file
     let config = Config::<E>::deserialize(&*fs::read(&config_path).unwrap()).unwrap();
 
@@ -254,36 +241,26 @@ pub fn parse_files<E: PairingEngine>(
     }
 }
 
-#[allow(dead_code)]
-pub fn setup<E: PairingEngine>(num_participants: usize, num_faults: usize) -> Input<E> {
-    let config_path = format!("config_{}_{}.txt", num_participants, num_faults);
-    let pks_path = format!("pks_{}_{}.txt", num_participants, num_faults);
-    let sks_path = format!("sks_{}_{}.txt", num_participants, num_faults);
-    let cms_path = format!("cms_{}_{}.txt", num_participants, num_faults);
-    let ips_path = format!("ips_{}_{}.txt", num_participants, num_faults);
+pub fn parse_ip_file(filename: String) -> Vec<SocketAddr> {
+    let mut addresses = Vec::new();
 
-    // If no config file exists, generate entire setup from scrath
-    if !Path::new(config_path.as_str()).exists() {
-        generate_setup_files::<E>(
-            num_participants,
-            num_faults,
-            &config_path,
-            &pks_path,
-            &sks_path,
-            &cms_path,
-            &ips_path,
-        );
+    if let Ok(lines) = read_lines(filename) {
+        for line in lines {
+            if let Ok(ip) = line {
+                addresses.push(ip.parse::<SocketAddr>().unwrap())
+            }
+        }
     }
 
-    // Parse files and return output tuple to caller:
-    // (config, pks, sks, cms, qual)
-    parse_files::<E>(
-        num_participants,
-        num_faults,
-        &config_path,
-        &pks_path,
-        &sks_path,
-        &cms_path,
-        &ips_path,
-    )
+    addresses
+}
+
+// The output is wrapped in a Result to allow matching on errors
+// Returns an Iterator to the Reader of the lines of the file.
+fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
+where
+    P: AsRef<Path>,
+{
+    let file = File::open(filename)?;
+    Ok(io::BufReader::new(file).lines())
 }

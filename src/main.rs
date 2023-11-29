@@ -1,8 +1,8 @@
-use std::net::SocketAddr;
 use ark_bls12_381::Bls12_381;
-use tokio::time::{sleep, Duration};
+use clap::Parser;
+use config::parse_ip_file;
 
-use crate::config::generate_setup_files;
+use crate::config::parse_files;
 
 mod config;
 mod core;
@@ -10,36 +10,28 @@ mod message;
 mod network;
 mod node;
 
+#[derive(Debug, Parser)]
+#[clap(author, version, about)]
+struct AppArgs {
+    /// Id of the node
+    node_id: usize,
+    /// Path to the file containing all IPs
+    nodes: String,
+}
+
 #[tokio::main]
 async fn main() {
-    let num_participants = 8; // temporary value for testing purposes
-    let num_faults = (num_participants >> 1) - 1; // assume maximum number of faults
-    println!("Max faults: {}", num_faults);
+    let args = AppArgs::parse();
 
-    // Create local ip addresses with different ports.
-    let addresses = (0..num_participants)
-        .map(|i| {
-            format!("127.0.0.1:{}", config::IP_START + i)
-                .parse::<SocketAddr>()
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
+    // Parse ip file
+    let addresses = parse_ip_file(args.nodes);
+    println!("Addresses: {:?}", addresses);
 
-    // Moved file generation here to have it execute only once.
-    let config_path = format!("config_{}_{}.txt", num_participants, num_faults);
-    let pks_path = format!("pks_{}_{}.txt", num_participants, num_faults);
-    let sks_path = format!("sks_{}_{}.txt", num_participants, num_faults);
-    let cms_path = format!("cms_{}_{}.txt", num_participants, num_faults);
-    let ips_path = format!("ips_{}_{}.txt", num_participants, num_faults);
-    generate_setup_files::<Bls12_381>(num_participants, num_faults, &config_path, &pks_path, &sks_path, &cms_path, &ips_path);
+    let num_participants = addresses.len(); // temporary value for testing purposes
+    let num_faults = (num_participants / 2) - 1; // assume maximum number of faults
 
-    // Spawn nodes.
-    for i in 0..num_participants {
-        let addresses = addresses.clone();
-        tokio::spawn(async move {
-            node::Node::new(i, addresses, num_participants, num_faults).await;
-        });
-    }
+    let input = parse_files::<Bls12_381>(num_participants, num_faults);
 
-    sleep(Duration::from_millis(10_000)).await;
+    // Spawn node.
+    node::new(args.node_id, addresses, num_participants, num_faults, input).await;
 }
