@@ -1,4 +1,3 @@
-use ark_bls12_381::Bls12_381;
 use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::{One, UniformRand};
 use ark_poly::{polynomial::UVPolynomial, Polynomial};
@@ -11,11 +10,11 @@ use std::{
     fs::{self, File},
     io::Write,
     marker::PhantomData,
-    net::SocketAddr,
+    //net::SocketAddr,
     ops::Neg,
     path::Path,
 };
-use tokio::time::{sleep, Duration};
+//use tokio::time::{sleep, Duration};
 
 use optrand_pvss::{
     generate_production_keypair,
@@ -48,7 +47,7 @@ pub struct Commitment<E: PairingEngine> {
 
 unsafe impl<E: PairingEngine> Send for Commitment<E> {}
 
-fn generate_setup_files<E: PairingEngine>(
+pub fn generate_setup_files<E: PairingEngine>(
     num_participants: usize,
     degree: usize,
     config_path: &str,
@@ -130,7 +129,10 @@ fn generate_setup_files<E: PairingEngine>(
         nodes.push(node);
     }
 
+    // Sample a random polynomial of degree t.
     let f = Poly::<E>::rand(degree, rng);
+
+    // Compute polynomial evaluations: f(1), ..., f(n).
     let s = (1..=num_participants)
             .map(|i| f.evaluate(&Scalar::<E>::from(i as u64)))
             .collect::<Vec<_>>();
@@ -208,7 +210,7 @@ fn generate_setup_files<E: PairingEngine>(
     cms_file.write_all(&cms_bytes).unwrap();
 }
 
-fn parse_files<E: PairingEngine>(
+pub fn parse_files<E: PairingEngine>(
     _num_participants: usize,
     _num_faults: usize,
     config_path: &str,
@@ -252,6 +254,7 @@ fn parse_files<E: PairingEngine>(
     }
 }
 
+#[allow(dead_code)]
 pub fn setup<E: PairingEngine>(num_participants: usize, num_faults: usize) -> Input<E> {
     let config_path = format!("config_{}_{}.txt", num_participants, num_faults);
     let pks_path = format!("pks_{}_{}.txt", num_participants, num_faults);
