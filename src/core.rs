@@ -146,7 +146,7 @@ impl<E: PairingEngine> Core<E> {
         (message.sigma.1).mul(prod).is_one()
     }
 
-    /// Returns the generator for the given epoch. If there is no one create one.
+    /// Returns the generator for the given epoch. If there is none, then create one.
     fn get_generator(&mut self, epoch: u64) -> ComGroup<E> {
         match self.generators.get_mut(&epoch) {
             Some(generator) => return generator.clone(),
