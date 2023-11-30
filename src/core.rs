@@ -97,6 +97,7 @@ impl<E: PairingEngine> Core<E> {
             return;
         }
 
+        // If message is from a node currently in a future epoch.
         if message.epoch > self.epoch {
             debug!(
                 "Epoch [{}]: Received message from future epoch [{}]",
