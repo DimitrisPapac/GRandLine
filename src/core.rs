@@ -114,7 +114,7 @@ impl<E: PairingEngine> Core<E> {
             return;
         }
 
-        // Consistency check.
+        // Check consistency.
         if !self.check_consistency(&message) {
             debug!(
                 "Epoch [{}]: Received inconsistent proof from {}",
