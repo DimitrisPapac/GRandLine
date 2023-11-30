@@ -130,7 +130,8 @@ impl<E: PairingEngine> Core<E> {
         self.try_reconstruction().await;
     }
 
-    /// TODO: better function name?
+    /// Checks consistency of a received SigmaMessage with the commitments
+    /// provided by the same user during the Commitment Phase.
     fn check_consistency(&mut self, message: &SigmaMessage<E>) -> bool {
         let pairs = [
             (
