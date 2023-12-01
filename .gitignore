@@ -1,5 +1,4 @@
 /target
-*.log
 __pycache__/
 *.py[cod]
 *.pem
