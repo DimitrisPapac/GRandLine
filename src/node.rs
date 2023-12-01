@@ -1,4 +1,5 @@
 use ark_ec::PairingEngine;
+use log::debug;
 
 use std::net::SocketAddr;
 use tokio::{
@@ -33,6 +34,7 @@ pub async fn new<E: PairingEngine>(
     let mut sender = SimpleSender::new(rx_send, tx_retransmit, addresses.clone());
 
     // Run retransmitter, receiver and sender.
+    debug!("Setting up network.. Listen address: {}", nodes[id]);
     tokio::spawn(async move {
         retransmitter.run().await;
     });

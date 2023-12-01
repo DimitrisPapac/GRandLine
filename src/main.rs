@@ -18,6 +18,8 @@ struct AppArgs {
     node_id: usize,
     /// Path to the file containing all IPs
     nodes: String,
+    /// Level of logging
+    log_level: usize,
 }
 
 #[tokio::main]
@@ -27,9 +29,15 @@ async fn main() {
     // Parse ip file
     let addresses = parse_ip_file(args.nodes);
 
+    let log_level = match args.log_level {
+        1 => log::LevelFilter::Info,
+        2 => log::LevelFilter::Debug,
+        _ => log::LevelFilter::Trace,
+    };
+
     // Set up logger
     env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
+        .filter_level(log_level)
         .format_target(false)
         .format_timestamp_millis()
         .init();

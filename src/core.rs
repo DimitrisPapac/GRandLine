@@ -59,7 +59,7 @@ impl<E: PairingEngine> Core<E> {
         num_faults: usize,
         input: Input<E>,
     ) {
-        info!("{} spawning Core.", id);
+        info!("Spawning Core...");
 
         Self {
             id,

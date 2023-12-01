@@ -7,7 +7,7 @@ from parse import parse_files
 # Create a file containing only local ips.
 print("Creating ip files...")
 prefix = "127.0.0.1:"
-filename = "ips.txt"
+filename = "local_ips.txt"
 f = open(filename, "w")
 ips = []
 
@@ -33,7 +33,7 @@ subprocess.run("killall -9 app", shell=True)
 print("Starting nodes...")
 processes = []
 for i, ip in enumerate(ips):
-    cmd = "./target/release/app {} {} &> logs/{}.log".format(i, filename, i)
+    cmd = "./target/release/app {} {} 2 &> logs/{}.log".format(i, filename, i)
     p = subprocess.Popen(cmd, shell=True)
     processes.append(p)
 
