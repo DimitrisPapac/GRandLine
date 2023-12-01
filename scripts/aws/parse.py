@@ -28,4 +28,4 @@ def parse_files(path):
                     prev = dt_object
                     avg_difference += difference
 
-    return avg_difference/counter
+    return avg_difference, counter

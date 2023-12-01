@@ -1,4 +1,5 @@
 use ark_ec::PairingEngine;
+use log::debug;
 
 use std::net::SocketAddr;
 use tokio::{
@@ -9,7 +10,7 @@ use tokio::{
 use crate::{
     config::Input,
     core::Core,
-    network::{SimpleReceiver, SimpleSender, SimpleRetransmitter},
+    network::{SimpleReceiver, SimpleRetransmitter, SimpleSender},
 };
 
 pub async fn new<E: PairingEngine>(
@@ -26,13 +27,17 @@ pub async fn new<E: PairingEngine>(
 
     let mut addresses = nodes.clone();
     addresses.remove(id);
+    let listen_address = format!("0.0.0.0:{}", 9000 + id)
+        .parse::<SocketAddr>()
+        .unwrap();
 
     // Create a retransmitter, receiver and sender.
     let mut retransmitter = SimpleRetransmitter::<E>::new(rx_retransmit, tx_send.clone());
-    let receiver = SimpleReceiver::new(nodes[id], tx_rec);
+    let receiver = SimpleReceiver::new(listen_address, tx_rec);
     let mut sender = SimpleSender::new(rx_send, tx_retransmit, addresses.clone());
 
     // Run retransmitter, receiver and sender.
+    debug!("Setting up network.. Listen address: {}", listen_address);
     tokio::spawn(async move {
         retransmitter.run().await;
     });
@@ -47,13 +52,5 @@ pub async fn new<E: PairingEngine>(
 
     sleep(Duration::from_millis(100)).await;
 
-    Core::spawn(
-        id,
-        tx_send,
-        rx_rec,
-        num_participants,
-        num_faults,
-        input,
-    )
-    .await;
+    Core::spawn(id, tx_send, rx_rec, num_participants, num_faults, input).await;
 }

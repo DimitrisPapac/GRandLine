@@ -1,4 +1,5 @@
 /target
-*.log
 __pycache__/
 *.py[cod]
+*.pem
+scripts/aws/ips
