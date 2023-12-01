@@ -1,5 +1,6 @@
 import subprocess
 import os
+import sys
 from parse import parse_files
 
 print("Creating ip file...")
@@ -19,10 +20,9 @@ for line in f_in:
 f_in.close()
 f_out.close()
 
-print("Installing...")
-subprocess.run("bash scripts/aws/do_setup.sh",
-               shell=True, stdout=subprocess.DEVNULL,
-               stderr=subprocess.STDOUT)
+if len(sys.argv) > 1:
+    print("Installing...")
+    subprocess.run("bash scripts/aws/do_setup.sh", shell=True)
 
 print("Deleting old logs...")
 for file in os.scandir("logs"):
@@ -30,9 +30,7 @@ for file in os.scandir("logs"):
         os.unlink(file.path)
 
 print("Running experiments...")
-subprocess.run("bash scripts/aws/do_test.sh",
-               shell=True, stdout=subprocess.DEVNULL,
-               stderr=subprocess.STDOUT)
+subprocess.run("bash scripts/aws/do_test.sh", shell=True)
 
 print("Parsing logs...")
 timedelta, counter = parse_files("logs/")
