@@ -37,7 +37,7 @@ async fn main() {
     debug!("Addresses: {:?}", addresses);
 
     let num_participants = addresses.len();      // number of participants in the network
-    let num_faults = (num_participants >> 1) - 1; // assume maximum number of faults (i.e., floor(num_participants/2) - 1)
+    let num_faults = (num_participants / 2) - 1; // assume maximum number of faults (i.e., floor(num_participants/2) - 1)
 
     let input = parse_files::<Bls12_381>(num_participants, num_faults);
 
