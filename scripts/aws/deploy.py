@@ -10,12 +10,9 @@ filename_out = "scripts/aws/ips"
 f_in = open(filename_in, "r")
 f_out = open(filename_out, "w")
 
-i = 0
-
-for line in f_in:
+for i, line in enumerate(f_in):
     port = 9000 + i
     f_out.write(line.splitlines()[0] + ":" + str(port) + "\n")
-    i += 1
 
 f_in.close()
 f_out.close()
