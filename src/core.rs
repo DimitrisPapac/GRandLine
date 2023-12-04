@@ -240,8 +240,6 @@ impl<E: PairingEngine> Core<E> {
             "Epoch [{}]: Beacon value: {:?}.",
             self.epoch, beacon_value,
         );
-
-        //self.beacons_emitted += 1;
     }
 
     /// Deletes the no longer needed entries from the sigma hash map, computes a new epoch generator
