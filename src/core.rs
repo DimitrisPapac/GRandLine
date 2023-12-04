@@ -279,7 +279,7 @@ impl<E: PairingEngine> Core<E> {
     /// Broadcast a given message to every node in the network.
     #[async_recursion]
     async fn broadcast(&mut self, msg: SigmaMessage<E>) {
-        trace!("Epoch [{}]: Brodacasting sigma", self.epoch);
+        trace!("Epoch [{}]: Broadcasting sigma", self.epoch);
         self.tx.send(msg).await.unwrap();
     }
 
