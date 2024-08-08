@@ -9,3 +9,4 @@ Licensed under the Apache License. See [LICENSE](/LICENSE)
 ## Author
 
 Dimitrios Papachristoudis, Cryptography Researcher.
+Simon Ochsenreither, Software Developer.
