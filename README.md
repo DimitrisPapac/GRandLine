@@ -1,1 +1,3 @@
-Reference implementation of the GRandLine randomness beacon protocol.
+#GRandLine
+
+This repository contains the reference implementation for the **GRandLine randomness beacon protocol**.
