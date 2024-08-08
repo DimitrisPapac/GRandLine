@@ -1,1 +1,1 @@
-Reference implementation for the GRandLine randomness beacon protocol.
+Reference implementation of the GRandLine randomness beacon protocol.
