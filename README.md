@@ -4,9 +4,9 @@ This repository contains the reference implementation for the **GRandLine random
 
 ## License
 
-Licensed under the Apache License. See [LICENSE](/LICENSE)
+Licensed under the Apache License. See [LICENSE](/LICENSE).
 
-## Author
+## Authors
 
 Dimitrios Papachristoudis, Cryptography Researcher.
 
