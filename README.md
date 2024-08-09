@@ -6,7 +6,7 @@ This repository contains the reference implementation for the **GRandLine Distri
 
 ## Quick Start
 
-GRandLine is written in Rust, but all our benchmarking script is written in Python. To deploy and benchmark on your local machine, clone the repository with: 
+GRandLine is written in Rust, but our benchmarking script is written in Python. To deploy and benchmark on your local machine, clone the repository with: 
 
 `git clone https://github.com/DimitrisPapac/GRandLine.git`
 
