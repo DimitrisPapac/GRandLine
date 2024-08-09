@@ -1,7 +1,7 @@
 [package]
 name = "grandline"
 version = "0.1.0"
-author = "Dimitris Papachristoudis"
+authors = ["Dimitris Papachristoudis", "Simon Ochsenreither"]
 edition = "2021"
 
 [dependencies]
