@@ -1,6 +1,6 @@
 # GRandLine
 
-This repository contains the reference implementation for the **GRandLine randomness beacon protocol**.
+This repository contains the reference implementation for the **GRandLine Distributed Randomness Beacon Protocol**.
 
 ## License
 
