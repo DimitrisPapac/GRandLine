@@ -6,7 +6,7 @@ This repository contains the reference implementation for the **GRandLine Distri
 
 ## Quick Start
 
-GRandLine is written in Rust, but all our benchmarking scripts are written in Python. To deploy and benchmark on your local machine, clone the repository with: 
+GRandLine is written in Rust, but all our benchmarking script is written in Python. To deploy and benchmark on your local machine, clone the repository with: 
 
 `git clone https://github.com/DimitrisPapac/GRandLine.git`
 
@@ -15,6 +15,7 @@ Switch to the project's root directory and run:
 `python3 scripts/local_run.py n t`
 
 where `n` is the number of nodes participating in the randomness generation, and `t` is the time (in seconds) for which you would like the protocol to run.
+Please bear in mind that our deployment script will delete any old logs, compile everything, generate the protocol's configuration, start and stop all the nodes and finally parse the generated logs.
 
 ## License
 
