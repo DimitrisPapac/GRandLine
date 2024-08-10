@@ -14,7 +14,7 @@ Switch to the project's root directory and from there, run:
 
 `python3 scripts/local_run.py n t`
 
-where `n` is the number of nodes participating in the randomness generation, and `t` is the time (in seconds) for which you would like the protocol to run.
+replacing `n` with the number of nodes participating in the randomness generation, and `t` with the time (in seconds) for which you would like the protocol to run.
 Please bear in mind that our deployment script will delete any old logs, compile everything, generate the protocol's configuration, start and stop all the nodes, and finally parse the generated logs.
 
 ## License
