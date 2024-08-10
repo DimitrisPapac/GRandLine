@@ -10,7 +10,7 @@ GRandLine is written in Rust, but our benchmarking script is written in Python. 
 
 `git clone https://github.com/DimitrisPapac/GRandLine.git`
 
-Switch to the project's root directory and from there, run:
+Switch to the project's root directory, and from there, run:
 
 `python3 scripts/local_run.py n t`
 
